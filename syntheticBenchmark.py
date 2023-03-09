@@ -124,7 +124,8 @@ plt.show()
 
 unc = []
 var = []
-cov_list = np.linspace(0.001, 0.5, 10)
+err = []
+cov_list = np.linspace(0.001, 0.99, 10)
 for coverage in cov_list:
     print("---------------")
     # Uncertainty with Doubt
@@ -140,18 +141,27 @@ for coverage in cov_list:
     )
     unc.append(mean_absolute_error(aux.y, aux.y_hat))
 
+    # Gold Case - Best possible
+    error = (y_te - clf.predict(X_te)) ** 2
+    X_te_["error"] = np.where(error > np.quantile(error, 1 - coverage), 1, 0)
+    aux0 = X_te_[X_te_["error"] == 0].copy()
+    err.append(mean_absolute_error(aux0.y, aux0.y_hat))
+
+    print(
+        "Gold: Coverage {:.2f} samples selected {}".format(
+            coverage, X_te_[X_te_["error"] == 0].shape[0]
+        )
+    )
     # Variance
-    variance = y - clf.predict(X_te) ** 2
-    X_te_["variance"] = np.where(variance < np.quantile(variance, coverage), 1, 0)
+    variance = clf.predict(X_te)
+    X_te_["variance"] = np.where(variance > np.quantile(variance, 1 - coverage), 1, 0)
     aux1 = X_te_[X_te_["variance"] == 0].copy()
     var.append(mean_absolute_error(aux1.y, aux1.y_hat))
-
     print(
         "Variance: Coverage {:.2f} samples selected {}".format(
             coverage, X_te_[X_te_["variance"] == 0].shape[0]
         )
     )
-
     # Plot X, Y, model line and the uncertainty interval
     if True == True:
         plt.figure(figsize=(10, 10))
@@ -165,19 +175,22 @@ for coverage in cov_list:
             label="Doubt",
         )
         plt.scatter(
-            X_te_[X_te_["variance"] == 1].Var1,
-            X_te_[X_te_["variance"] == 1].y,
+            X_te_[X_te_["error"] == 1].Var1,
+            X_te_[X_te_["error"] == 1].y,
             marker="x",
             alpha=0.1,
             color="red",
-            label="Variance",
+            label="Gold Case (Best possible)",
         )
+        ##plt.scatter(X_te_[X_te_["variance"] == 1].Var1,X_te_[X_te_["variance"] == 1].y,alpha=0.1,color="k",label="Variance",)
+        plt.legend()
         plt.show()
 
 # %%
 # Plot unc and var
 plt.figure(figsize=(10, 10))
 plt.plot(cov_list, unc, label="Doubt")
+plt.plot(cov_list, err, label="Gold Case (Best possible)")
 plt.plot(cov_list, var, label="Variance")
 plt.ylabel("Error (Lower is better)")
 plt.xlabel("Coverage")
@@ -185,4 +198,13 @@ plt.legend()
 plt.show()
 
 
+# %%
+
+np.var(y - clf.predict(X_te))
+# %%
+# Calculate the deviation from the mean
+np.mean(clf.predict(X_te)) - clf.predict(X_te)
+
+# %%
+np.var(clf.predict(X_te))
 # %%
