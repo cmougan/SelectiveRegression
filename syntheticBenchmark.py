@@ -37,7 +37,7 @@ from doubt import Boot
 # Create data
 n = 1000
 X = np.random.normal(0, 1, n)
-y = X + 10 * np.sin(X) + np.random.normal(0, 1, n)
+y = X + 10 * np.sin(1.2 * X) + np.random.normal(0, 1, n)
 # Convert to dataframe
 # df = pd.DataFrame(X, columns=["Var%d" % (i + 1) for i in range(X.shape[1])])
 df = pd.DataFrame([X]).T
@@ -61,7 +61,7 @@ X_tr, X_te, y_tr, y_te = train_test_split(
 # Doubt uncertainty
 uncertainty = 0.05
 # Coverage quantile of the selective regression
-coverage = 0.95
+# coverage = 0.9
 # %%
 # Train Model
 clf = Boot(Lasso(alpha=0.01))
@@ -72,36 +72,41 @@ interval = unc[:, 1] - unc[:, 0]
 # Save data
 X_te_ = X_te.copy()
 # Add interval
-X_te_["intererval"] = interval
+X_te_["interval"] = interval
 X_te_["y"] = y_te
 X_te_["y_hat"] = clf.predict(X_te)
-X_te_["selected"] = np.where(
-    X_te_["intererval"] > np.quantile(interval, coverage), 1, 0
-)
-# %%
-# Plot X, Y, model line and the uncertainty interval
-plt.figure(figsize=(10, 10))
-plt.scatter(X_te.Var1, y_te, alpha=0.1)
-plt.plot(X_te.Var1, clf.predict(X_te), color="red")
-plt.scatter(
-    X_te_[X_te_["selected"] == 1].Var1,
-    X_te_[X_te_["selected"] == 1].y,
-    alpha=0.1,
-    color="green",
-)
-plt.show()
+
 # %%
 mae = []
 mse = []
-cov_list = np.linspace(0.5, 0.99, 10)
+cov_list = np.linspace(0.001, 0.4, 10)
 for coverage in cov_list:
     X_te_["selected"] = np.where(
-        X_te_["intererval"] > np.quantile(interval, coverage), 1, 0
+        X_te_["interval"] > np.quantile(interval, 1 - coverage), 1, 0
     )
-    aux = X_te_[X_te_["selected"] == 1].copy()
-    print(X_te_[X_te_["selected"] == 1].shape)
+    aux = X_te_[X_te_["selected"] == 0].copy()
+    print(
+        "Coverage {:.2f} samples selected {}, which is {:.2f}%".format(
+            coverage,
+            X_te_[X_te_["selected"] == 0].shape[0],
+            X_te_[X_te_["selected"] == 0].shape[0] / X_te_.shape[0],
+        )
+    )
     mae.append(mean_absolute_error(aux.y, aux.y_hat))
     mse.append(mean_squared_error(aux.y, aux.y_hat))
+
+    # Plot X, Y, model line and the uncertainty interval
+    if True == True:
+        plt.figure(figsize=(10, 10))
+        plt.scatter(X_te.Var1, y_te, alpha=0.1)
+        plt.plot(X_te.Var1, clf.predict(X_te), color="red")
+        plt.scatter(
+            X_te_[X_te_["selected"] == 1].Var1,
+            X_te_[X_te_["selected"] == 1].y,
+            alpha=0.1,
+            color="green",
+        )
+        plt.show()
 
 
 # %%
@@ -109,9 +114,75 @@ for coverage in cov_list:
 plt.figure(figsize=(10, 10))
 plt.plot(cov_list, mae, label="MAE")
 plt.plot(cov_list, mse, label="MSE")
-plt.ylabel("Error")
+plt.ylabel("Error (Lower is better)")
 plt.xlabel("Coverage")
 plt.legend()
 plt.show()
+
+# %%
+# Benchmark against others
+
+unc = []
+var = []
+cov_list = np.linspace(0.001, 0.5, 10)
+for coverage in cov_list:
+    print("---------------")
+    # Uncertainty with Doubt
+    X_te_["uncertainty"] = np.where(
+        X_te_["interval"] > np.quantile(interval, 1 - coverage), 1, 0
+    )
+
+    aux = X_te_[X_te_["uncertainty"] == 0].copy()
+    print(
+        "Doubt: Coverage {:.2f} samples selected {}".format(
+            coverage, X_te_[X_te_["uncertainty"] == 0].shape[0]
+        )
+    )
+    unc.append(mean_absolute_error(aux.y, aux.y_hat))
+
+    # Variance
+    variance = y - clf.predict(X_te) ** 2
+    X_te_["variance"] = np.where(variance < np.quantile(variance, coverage), 1, 0)
+    aux1 = X_te_[X_te_["variance"] == 0].copy()
+    var.append(mean_absolute_error(aux1.y, aux1.y_hat))
+
+    print(
+        "Variance: Coverage {:.2f} samples selected {}".format(
+            coverage, X_te_[X_te_["variance"] == 0].shape[0]
+        )
+    )
+
+    # Plot X, Y, model line and the uncertainty interval
+    if True == True:
+        plt.figure(figsize=(10, 10))
+        plt.scatter(X_te.Var1, y_te, alpha=0.1)
+        plt.plot(X_te.Var1, clf.predict(X_te), color="red")
+        plt.scatter(
+            X_te_[X_te_["uncertainty"] == 1].Var1,
+            X_te_[X_te_["uncertainty"] == 1].y,
+            alpha=0.1,
+            color="green",
+            label="Doubt",
+        )
+        plt.scatter(
+            X_te_[X_te_["variance"] == 1].Var1,
+            X_te_[X_te_["variance"] == 1].y,
+            marker="x",
+            alpha=0.1,
+            color="red",
+            label="Variance",
+        )
+        plt.show()
+
+# %%
+# Plot unc and var
+plt.figure(figsize=(10, 10))
+plt.plot(cov_list, unc, label="Doubt")
+plt.plot(cov_list, var, label="Variance")
+plt.ylabel("Error (Lower is better)")
+plt.xlabel("Coverage")
+plt.legend()
+plt.show()
+
 
 # %%
