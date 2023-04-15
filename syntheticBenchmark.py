@@ -17,15 +17,18 @@ rcParams.update({"font.size": 22})
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_absolute_error
+from sklearn.neighbors import KNeighborsRegressor
 
 # Doubt
 from doubt import Boot
+from xgboost import XGBRegressor
 
 # %%
 # Create data
 n = 2000
 X = np.random.normal(0, 2, n) * 10
 y = X + 10 * np.sin(0.5 * X) + np.random.normal(0, 1, n)
+
 # Convert to dataframe
 # df = pd.DataFrame(X, columns=["Var%d" % (i + 1) for i in range(X.shape[1])])
 df = pd.DataFrame([X]).T
@@ -54,7 +57,7 @@ uncertainty = 0.05
 # coverage = 0.9
 # %%
 # Train Model
-clf = Boot(Lasso(alpha=0.01))
+clf = Boot(Lasso())
 clf.fit(X_tr, y_tr)
 _, unc_te = clf.predict(X_te, uncertainty=uncertainty)
 _, unc_val = clf.predict(X_val, uncertainty=uncertainty)
@@ -79,7 +82,7 @@ X_val_["y_hat"] = clf.predict(X_val)
 unc = []
 var = []
 err = []
-cov_list = np.linspace(0.1, 0.9, 10)
+cov_list = np.linspace(0.1, 0.7, 10)
 for coverage in cov_list:
     print("---------------")
     # Uncertainty with Doubt
@@ -125,7 +128,7 @@ for coverage in cov_list:
         )
     )
     # Plot X, Y, model line and the uncertainty interval
-    if True == False:
+    if True == True:
         plt.figure(figsize=(10, 10))
         plt.scatter(X_te.Var1, y_te, alpha=0.1)
         plt.plot(X_te.Var1, clf.predict(X_te), color="red")

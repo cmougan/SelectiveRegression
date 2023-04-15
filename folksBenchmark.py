@@ -21,9 +21,10 @@ from sklearn.metrics import mean_absolute_error
 # Doubt
 from doubt import Boot
 
+from xgboost import XGBRegressor
+
 # %%
 from folktables import ACSDataSource, ACSIncome
-
 
 data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
 ca_data = data_source.get_data(states=["CA"], download=True)
@@ -48,7 +49,7 @@ uncertainty = 0.05
 # coverage = 0.9
 # %%
 # Train Model
-clf = Boot(Lasso(alpha=0.01))
+clf = Boot(XGBRegressor())
 clf.fit(X_tr, y_tr)
 _, unc_te = clf.predict(X_te, uncertainty=uncertainty)
 _, unc_val = clf.predict(X_val, uncertainty=uncertainty)
