@@ -51,11 +51,13 @@ plt.xlabel("X")
 plt.ylabel("Y")
 plt.show()
 # %%
+# Train Validation Test Split
 X_tr, X_te, y_tr, y_te = train_test_split(
     df.drop("label", axis=1),
     df["label"],
     test_size=0.5,
 )
+X_te, X_val, y_te, y_val = train_test_split(X_te, y_te, test_size=0.5)
 # %%
 # Params
 # Doubt uncertainty
@@ -66,15 +68,23 @@ uncertainty = 0.05
 # Train Model
 clf = Boot(Lasso(alpha=0.01))
 clf.fit(X_tr, y_tr)
-y, unc = clf.predict(X_te, uncertainty=uncertainty)
-interval = unc[:, 1] - unc[:, 0]
+_, unc_te = clf.predict(X_te, uncertainty=uncertainty)
+_, unc_val = clf.predict(X_val, uncertainty=uncertainty)
+interval_te = unc_te[:, 1] - unc_te[:, 0]
+interval_val = unc_val[:, 1] - unc_val[:, 0]
 # %%
 # Save data
 X_te_ = X_te.copy()
 # Add interval
-X_te_["interval"] = interval
+X_te_["interval"] = interval_te
 X_te_["y"] = y_te
 X_te_["y_hat"] = clf.predict(X_te)
+
+X_val_ = X_val.copy()
+# Add interval
+X_val_["interval"] = interval_val
+X_val_["y"] = y_val
+X_val_["y_hat"] = clf.predict(X_val)
 
 # %%
 mae = []
@@ -82,7 +92,7 @@ mse = []
 cov_list = np.linspace(0.001, 0.4, 10)
 for coverage in cov_list:
     X_te_["selected"] = np.where(
-        X_te_["interval"] > np.quantile(interval, 1 - coverage), 1, 0
+        X_te_["interval"] > np.quantile(interval_val, 1 - coverage), 1, 0
     )
     aux = X_te_[X_te_["selected"] == 0].copy()
     print(
@@ -129,8 +139,9 @@ cov_list = np.linspace(0.001, 0.99, 10)
 for coverage in cov_list:
     print("---------------")
     # Uncertainty with Doubt
+    ## Interval is the validation one
     X_te_["uncertainty"] = np.where(
-        X_te_["interval"] > np.quantile(interval, 1 - coverage), 1, 0
+        X_te_["interval"] > np.quantile(interval_val, 1 - coverage), 1, 0
     )
 
     aux = X_te_[X_te_["uncertainty"] == 0].copy()
@@ -153,7 +164,8 @@ for coverage in cov_list:
         )
     )
     # Variance
-    variance = clf.predict(X_te)
+    ## Variance on the validation
+    variance = (np.mean(clf.predict(X_val)) - clf.predict(X_val)) ** 2
     X_te_["variance"] = np.where(variance > np.quantile(variance, 1 - coverage), 1, 0)
     aux1 = X_te_[X_te_["variance"] == 0].copy()
     var.append(mean_absolute_error(aux1.y, aux1.y_hat))
@@ -198,13 +210,4 @@ plt.legend()
 plt.show()
 
 
-# %%
-
-np.var(y - clf.predict(X_te))
-# %%
-# Calculate the deviation from the mean
-np.mean(clf.predict(X_te)) - clf.predict(X_te)
-
-# %%
-np.var(clf.predict(X_te))
 # %%
