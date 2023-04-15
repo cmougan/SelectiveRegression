@@ -22,30 +22,24 @@ from sklearn.metrics import mean_absolute_error
 from doubt import Boot
 
 # %%
-# Create data
-n = 2000
-X = np.random.normal(0, 2, n) * 10
-y = X + 10 * np.sin(0.5 * X) + np.random.normal(0, 1, n)
-# Convert to dataframe
-# df = pd.DataFrame(X, columns=["Var%d" % (i + 1) for i in range(X.shape[1])])
-df = pd.DataFrame([X]).T
-df.columns = ["Var1"]
-df["label"] = y
+from folktables import ACSDataSource, ACSIncome
 
-# Plot X, Y and the model line
-plt.figure(figsize=(10, 10))
-plt.scatter(X, y, alpha=0.1)
-plt.xlabel("X")
-plt.ylabel("Y")
-plt.show()
-# %%
-# Train Validation Test Split
+
+data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
+ca_data = data_source.get_data(states=["CA"], download=True)
+ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
+ca_features = ca_features.drop(columns="RAC1P")
+ca_features["group"] = ca_group
+ca_features["label"] = ca_labels
+
+# Smaller dataset
+ca_features = ca_features.sample(5000)
+# Split train, test and holdout
 X_tr, X_te, y_tr, y_te = train_test_split(
-    df.drop("label", axis=1),
-    df["label"],
-    test_size=0.5,
+    ca_features.drop(columns="label"), ca_features.label, test_size=0.5, random_state=0
 )
-X_te, X_val, y_te, y_val = train_test_split(X_te, y_te, test_size=0.5)
+X_val, X_te, y_val, y_te = train_test_split(X_te, y_te, test_size=0.5, random_state=0)
+# %%
 # %%
 # Params
 # Doubt uncertainty
