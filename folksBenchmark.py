@@ -155,6 +155,7 @@ plt.plot(cov_list, var, label="Variance")
 plt.ylabel("Error (Lower is better)")
 plt.xlabel("Coverage")
 plt.legend()
+plt.savefig("images/folksBenchmark.pdf", bbox_inches="tight")
 plt.show()
 
 
