@@ -118,7 +118,9 @@ for coverage in cov_list:
     ## Variance on the validation
     variance = (np.mean(clf.predict(X_val)) - clf.predict(X_val)) ** 2
     variance_test = (np.mean(clf.predict(X_te)) - clf.predict(X_te)) ** 2
-    X_te_["variance"] = np.where(variance_test > np.quantile(variance, 1 - coverage), 1, 0)
+    X_te_["variance"] = np.where(
+        variance_test > np.quantile(variance, 1 - coverage), 1, 0
+    )
     aux1 = X_te_[X_te_["variance"] == 0].copy()
     var.append(mean_absolute_error(aux1.y, aux1.y_hat))
     print(
