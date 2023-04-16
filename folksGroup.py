@@ -33,8 +33,9 @@ ca_data = data_source.get_data(states=["CA"], download=True)
 ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
 ca_features = ca_features.drop(columns="RAC1P")
 ca_features["group"] = ca_group
-ca_features["label"] = ca_labels
-
+# ca_features["label"] = ca_labels
+# Rename SCHL as label
+ca_features = ca_features.rename(columns={"SCHL": "label"})
 # Smaller dataset
 ca_features = ca_features.sample(5000)
 

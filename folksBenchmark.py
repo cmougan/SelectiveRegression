@@ -20,19 +20,21 @@ from sklearn.metrics import mean_absolute_error
 
 # Doubt
 from doubt import Boot
-
 from xgboost import XGBRegressor
-
-# %%
 from folktables import ACSDataSource, ACSIncome
 
+# %%
+# Load Data
 data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
 ca_data = data_source.get_data(states=["CA"], download=True)
 ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
 ca_features = ca_features.drop(columns="RAC1P")
 ca_features["group"] = ca_group
-ca_features["label"] = ca_labels
+# ca_features["label"] = ca_labels
+# Rename SCHL as label
+ca_features = ca_features.rename(columns={"SCHL": "label"})
 
+ca_features
 # Smaller dataset
 ca_features = ca_features.sample(5000)
 # Split train, test and holdout
