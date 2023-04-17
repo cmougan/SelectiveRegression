@@ -85,6 +85,20 @@ err = []
 cov_list = np.linspace(0.1, 0.7, 10)
 for coverage in cov_list:
     print("---------------")
+    # Gold Case - Best possible
+    error = (y_te - clf.predict(X_te)) ** 2
+    X_te_["error"] = np.where(error > np.quantile(error, 1 - coverage), 1, 0)
+    aux0 = X_te_[X_te_["error"] == 0].copy()
+    err.append(mean_absolute_error(aux0.y, aux0.y_hat))
+    empirical_coverage = aux0.shape[0] / X_te_.shape[0]
+    print(
+        "Gold: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+            empirical_coverage,
+            X_te_[X_te_["error"] == 0].shape[0],
+            mean_absolute_error(aux0.y, aux0.y_hat),
+        )
+    )
+
     # Uncertainty with Doubt
     ## Interval is the validation one
     X_te_["uncertainty"] = np.where(
@@ -92,28 +106,17 @@ for coverage in cov_list:
     )
 
     aux = X_te_[X_te_["uncertainty"] == 0].copy()
+
+    empirical_coverage = aux.shape[0] / X_te_.shape[0]
     unc.append(mean_absolute_error(aux.y, aux.y_hat))
     print(
         "Doubt: Coverage {:.2f} samples selected {} with error {:.2f}".format(
-            coverage,
+            empirical_coverage,
             X_te_[X_te_["uncertainty"] == 0].shape[0],
             mean_absolute_error(aux.y, aux.y_hat),
         )
     )
 
-    # Gold Case - Best possible
-    error = (y_te - clf.predict(X_te)) ** 2
-    X_te_["error"] = np.where(error > np.quantile(error, 1 - coverage), 1, 0)
-    aux0 = X_te_[X_te_["error"] == 0].copy()
-    err.append(mean_absolute_error(aux0.y, aux0.y_hat))
-
-    print(
-        "Gold: Coverage {:.2f} samples selected {} with error {:.2f}".format(
-            coverage,
-            X_te_[X_te_["error"] == 0].shape[0],
-            mean_absolute_error(aux0.y, aux0.y_hat),
-        )
-    )
     # Variance
     ## Variance on the validation
     variance = (np.mean(clf.predict(X_val)) - clf.predict(X_val)) ** 2
@@ -123,15 +126,16 @@ for coverage in cov_list:
     )
     aux1 = X_te_[X_te_["variance"] == 0].copy()
     var.append(mean_absolute_error(aux1.y, aux1.y_hat))
+    empirical_coverage = aux1.shape[0] / X_te_.shape[0]
     print(
         "Variance: Coverage {:.2f} samples selected {} with error {:.2f}".format(
-            coverage,
+            empirical_coverage,
             X_te_[X_te_["variance"] == 0].shape[0],
             mean_absolute_error(aux1.y, aux1.y_hat),
         )
     )
     # Plot X, Y, model line and the uncertainty interval
-    if True == True:
+    if True == False:
         plt.figure(figsize=(10, 10))
         plt.scatter(X_te.Var1, y_te, alpha=0.1)
         plt.plot(X_te.Var1, clf.predict(X_te), color="red")
@@ -167,3 +171,8 @@ plt.show()
 
 
 # %%
+np.quantile(interval_val, 1 - coverage)
+# %%
+coverage
+# %%
+np.where(X_te_["interval"] > np.quantile(interval_val, 1 - coverage), 1, 0)
