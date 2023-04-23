@@ -95,6 +95,7 @@ cov_list = np.linspace(0.7, 0.9, 5)
 dict_selnet = {}
 for coverage in cov_list:
     print("---------------")
+
     ### SelectiveNet
     sel = SelectiveNetRegressor(coverage=coverage, body_dict=body_dict)
     sel.fit(X_tr, y_tr, epochs=100, verbose=True)
@@ -115,6 +116,22 @@ for coverage in cov_list:
         )
     )
     sln_cov.append(X_te_[X_te_['selnet'] == 1].shape[0])
+
+    # Gold Case - Best possible
+    error = (y_te - clf.predict(X_te)) ** 2
+    X_te_["error"] = np.where(error > np.quantile(error, 1 - coverage), 1, 0)
+    aux0 = X_te_[X_te_["error"] == 0].copy()
+    err.append(mean_absolute_error(aux0.y, aux0.y_hat))
+    empirical_coverage = aux0.shape[0] / X_te_.shape[0]
+    print(
+        "Gold: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+            empirical_coverage,
+            X_te_[X_te_["error"] == 0].shape[0],
+            mean_absolute_error(aux0.y, aux0.y_hat),
+        )
+    )
+
+
     # Uncertainty with Doubt
     ## Interval is the validation one
     X_te_["uncertainty"] = np.where(
@@ -126,11 +143,22 @@ for coverage in cov_list:
     print(
         "Doubt: Coverage {:.2f} samples selected {} with error {:.2f} out of {}".format(
             coverage,
-            X_te_[X_te_["uncertainty"] == 1].shape[0],
+            X_te_[X_te_["uncertainty"] == 1].shape[0])
+            
+    aux = X_te_[X_te_["uncertainty"] == 0].copy()
+
+    empirical_coverage = aux.shape[0] / X_te_.shape[0]
+    unc.append(mean_absolute_error(aux.y, aux.y_hat))
+    print(
+        "Doubt: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+            empirical_coverage,
+            X_te_[X_te_["uncertainty"] == 0].shape[0],
+
             mean_absolute_error(aux.y, aux.y_hat),
             X_te_.shape[1],
         )
     )
+
     unc_cov.append(X_te_[X_te_['uncertainty'] == 1].shape[0])
     # Gold Case - Best possible
     error = (y_te - clf.predict(X_te)) ** 2
@@ -145,6 +173,9 @@ for coverage in cov_list:
         )
     )
     err_cov.append(X_te_[X_te_['error'] == 1].shape[0])
+
+
+
     # Variance
     ## Variance on the validation
     variance = (np.mean(clf.predict(X_val)) - clf.predict(X_val)) ** 2
@@ -152,10 +183,16 @@ for coverage in cov_list:
     X_te_["variance"] = np.where(variance_test < np.quantile(variance, coverage), 1, 0)
     aux1 = X_te_[X_te_["variance"] == 1].copy()
     var.append(mean_absolute_error(aux1.y, aux1.y_hat))
+    empirical_coverage = aux1.shape[0] / X_te_.shape[0]
     print(
         "Variance: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+
             coverage,
             X_te_[X_te_["variance"] == 1].shape[0],
+
+            empirical_coverage,
+            X_te_[X_te_["variance"] == 0].shape[0],
+
             mean_absolute_error(aux1.y, aux1.y_hat),
         )
     )

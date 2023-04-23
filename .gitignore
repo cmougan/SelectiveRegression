@@ -131,3 +131,5 @@ dmypy.json
 stupid.py
 data
 images
+DS_Store
+.DS_Store
