@@ -1,14 +1,29 @@
 import sklearn.preprocessing
 import torch.utils.data
 import torch.optim as optim
-from tools.utils import *
+from tools.utils import (
+    set_seed,
+    train,
+    tabular_model,
+    TabularDataset,
+    predict,
+    predict_conf,
+)
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 import pandas as pd
 
 
 class SelectiveNetRegressor(ClassifierMixin, BaseEstimator):
-    """ """
+    """
+    SelectiveNetRegressor is a class that implements the SelectiveNet algorithm for regression.
+    The algorithm is described in the paper:
+    "SelectiveNet: A Deep Neural Network with an Integrated Reject Option"
+    by: Yonatan Geifman, Ran El-Yaniv
+    http://proceedings.mlr.press/v97/geifman19a/geifman19a.pdf
+
+    The class is a wrapper for the SelectiveNet algorithm. It is implemented using PyTorch.
+    """
 
     def __init__(
         self,
@@ -136,7 +151,7 @@ class SelectiveNetRegressor(ClassifierMixin, BaseEstimator):
                 alpha=alpha,
                 coverage=self.coverage,
                 td=td,
-                verbose=verbose
+                verbose=verbose,
             )
 
     def predict_conf(self, X):
