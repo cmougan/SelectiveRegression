@@ -22,21 +22,25 @@ from sklearn.metrics import mean_absolute_error
 from doubt import Boot
 from xgboost import XGBRegressor
 from folktables import ACSDataSource, ACSIncome
+from tools.SelectiveNet import SelectiveNetRegressor
+from tools.utils import set_seed
 
+np.random.seed(42)
+set_seed(42)
 # %%
 # Load Data
 data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
 ca_data = data_source.get_data(states=["CA"], download=True)
+# features, label, group = ACSEmployment.df_to_numpy(acs_data)
 ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
 ca_features = ca_features.drop(columns="RAC1P")
 ca_features["group"] = ca_group
 # ca_features["label"] = ca_labels
 # Rename SCHL as label
 ca_features = ca_features.rename(columns={"SCHL": "label"})
-
 ca_features
 # Smaller dataset
-ca_features = ca_features.sample(5000)
+ca_features = ca_features.sample(10000)
 # Split train, test and holdout
 X_tr, X_te, y_tr, y_te = train_test_split(
     ca_features.drop(columns="label"), ca_features.label, test_size=0.5, random_state=0
@@ -51,12 +55,13 @@ uncertainty = 0.05
 # coverage = 0.9
 # %%
 # Train Model
-clf = Boot(XGBRegressor())
+clf = Boot(XGBRegressor(n_jobs=4), random_seed=42)
 clf.fit(X_tr, y_tr)
 _, unc_te = clf.predict(X_te, uncertainty=uncertainty)
 _, unc_val = clf.predict(X_val, uncertainty=uncertainty)
 interval_te = unc_te[:, 1] - unc_te[:, 0]
 interval_val = unc_val[:, 1] - unc_val[:, 0]
+
 # %%
 # Save data
 X_te_ = X_te.copy()
@@ -70,15 +75,48 @@ X_val_ = X_val.copy()
 X_val_["interval"] = interval_val
 X_val_["y"] = y_val
 X_val_["y_hat"] = clf.predict(X_val)
-
+body_dict = {"d_token": 192, "n_blocks": 3, "ffn_d_hidden": int(2*192), "attention_dropout": .4, "residual_dropout": 0}
 # %%
 # Benchmark against others
 unc = []
 var = []
 err = []
-cov_list = np.linspace(0.1, 0.9, 10)
+sln = []
+
+#### store coverage
+
+unc_cov = []
+var_cov = []
+err_cov = []
+sln_cov = []
+
+
+cov_list = np.linspace(0.7, 0.9, 5)
+dict_selnet = {}
 for coverage in cov_list:
     print("---------------")
+
+    ### SelectiveNet
+    sel = SelectiveNetRegressor(coverage=coverage, body_dict=body_dict)
+    sel.fit(X_tr, y_tr, epochs=100, verbose=True)
+    dict_selnet[coverage] = sel
+    X_te_["y_hat_selnet"], unc_te_sel = sel.predict(X_te)
+    _, unc_val_sel = sel.predict(X_val)
+    # HERE WE REVERSE THE SIGN, AS WE WANT TO SELECT INSTANCES THAT ARE ABOVE A CERTAIN CONFIDENCE
+    X_te_["selnet"] = np.where(
+        unc_te_sel > np.quantile(unc_val_sel, 1 - coverage), 1, 0
+    )
+    aux2 = X_te_[X_te_["selnet"] == 1].copy()
+    sln.append(mean_absolute_error(aux2.y, aux2.y_hat_selnet))
+    print(
+        "Selnet: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+            coverage,
+            X_te_[X_te_["selnet"] == 1].shape[0],
+            mean_absolute_error(aux2.y, aux2.y_hat_selnet),
+        )
+    )
+    sln_cov.append(X_te_[X_te_['selnet'] == 1].shape[0])
+
     # Gold Case - Best possible
     error = (y_te - clf.predict(X_te)) ** 2
     X_te_["error"] = np.where(error > np.quantile(error, 1 - coverage), 1, 0)
@@ -93,12 +131,20 @@ for coverage in cov_list:
         )
     )
 
+
     # Uncertainty with Doubt
     ## Interval is the validation one
     X_te_["uncertainty"] = np.where(
-        X_te_["interval"] > np.quantile(interval_val, 1 - coverage), 1, 0
+        X_te_["interval"] < np.quantile(interval_val, coverage), 1, 0
     )
 
+    aux = X_te_[X_te_["uncertainty"] == 1].copy()
+    unc.append(mean_absolute_error(aux.y, aux.y_hat))
+    print(
+        "Doubt: Coverage {:.2f} samples selected {} with error {:.2f} out of {}".format(
+            coverage,
+            X_te_[X_te_["uncertainty"] == 1].shape[0])
+            
     aux = X_te_[X_te_["uncertainty"] == 0].copy()
 
     empirical_coverage = aux.shape[0] / X_te_.shape[0]
@@ -107,27 +153,50 @@ for coverage in cov_list:
         "Doubt: Coverage {:.2f} samples selected {} with error {:.2f}".format(
             empirical_coverage,
             X_te_[X_te_["uncertainty"] == 0].shape[0],
+
             mean_absolute_error(aux.y, aux.y_hat),
+            X_te_.shape[1],
         )
     )
+
+    unc_cov.append(X_te_[X_te_['uncertainty'] == 1].shape[0])
+    # Gold Case - Best possible
+    error = (y_te - clf.predict(X_te)) ** 2
+    X_te_["error"] = np.where(error < np.quantile(error, coverage), 1, 0)
+    aux0 = X_te_[X_te_["error"] == 1].copy()
+    err.append(mean_absolute_error(aux0.y, aux0.y_hat))
+    print(
+        "Gold: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+            coverage,
+            X_te_[X_te_["error"] == 1].shape[0],
+            mean_absolute_error(aux0.y, aux0.y_hat),
+        )
+    )
+    err_cov.append(X_te_[X_te_['error'] == 1].shape[0])
+
+
 
     # Variance
     ## Variance on the validation
     variance = (np.mean(clf.predict(X_val)) - clf.predict(X_val)) ** 2
     variance_test = (np.mean(clf.predict(X_te)) - clf.predict(X_te)) ** 2
-    X_te_["variance"] = np.where(
-        variance_test > np.quantile(variance, 1 - coverage), 1, 0
-    )
-    aux1 = X_te_[X_te_["variance"] == 0].copy()
+    X_te_["variance"] = np.where(variance_test < np.quantile(variance, coverage), 1, 0)
+    aux1 = X_te_[X_te_["variance"] == 1].copy()
     var.append(mean_absolute_error(aux1.y, aux1.y_hat))
     empirical_coverage = aux1.shape[0] / X_te_.shape[0]
     print(
         "Variance: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+
+            coverage,
+            X_te_[X_te_["variance"] == 1].shape[0],
+
             empirical_coverage,
             X_te_[X_te_["variance"] == 0].shape[0],
+
             mean_absolute_error(aux1.y, aux1.y_hat),
         )
     )
+    var_cov.append(X_te_[X_te_['variance'] == 1].shape[0])
     # Plot X, Y, model line and the uncertainty interval
     if True == False:
         plt.figure(figsize=(10, 10))
@@ -155,14 +224,27 @@ for coverage in cov_list:
 # %%
 # Plot unc and var
 plt.figure(figsize=(10, 10))
-plt.plot(cov_list, unc, label="Doubt")
-plt.plot(cov_list, err, label="Gold Case (Best possible)")
-plt.plot(cov_list, var, label="Variance")
+plt.plot(cov_list, unc, label="Doubt", marker="o")
+plt.plot(cov_list, err, label="Gold Case (Best possible)", marker="s")
+plt.plot(cov_list, var, label="Variance", marker="d")
+plt.plot(cov_list, sln, label="SelNet", marker="^")
 plt.ylabel("Error (Lower is better)")
 plt.xlabel("Coverage")
 plt.legend()
-plt.savefig("images/folksBenchmark.pdf", bbox_inches="tight")
-plt.show()
-
+plt.savefig("images/folksBenchmark_performance.pdf", bbox_inches="tight")
+# plt.show()
+X_te_.to_csv("check_folks_results.csv", index=False)
 
 # %%
+
+plt.figure(figsize=(10, 10))
+plt.plot(cov_list, unc_cov, label="Doubt", marker="o")
+plt.plot(cov_list, err_cov, label="Gold Case (Best possible)", marker="s")
+plt.plot(cov_list, var_cov, label="Variance", marker="d")
+plt.plot(cov_list, sln_cov, label="SelNet", marker="^")
+plt.ylabel("Error (Lower is better)")
+plt.xlabel("Coverage")
+plt.legend()
+plt.savefig("images/folksBenchmark_coverage.pdf", bbox_inches="tight")
+# plt.show()
+X_te_.to_csv("check_folks_results.csv", index=False)
