@@ -41,6 +41,12 @@ cfg = {
 
 # set seed function
 def set_seed(seed=None, seed_torch=True):
+    """
+    Set random seed for reproducibility. Both in numpy and pytorch.
+    :param seed: int
+    :param seed_torch: bool
+
+    """
     if seed is None:
         seed = np.random.choice(2**32)
         random.seed(seed)
