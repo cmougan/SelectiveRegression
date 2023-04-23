@@ -31,6 +31,7 @@ class SelectiveNetRegressor(ClassifierMixin, BaseEstimator):
         model_type: str = "TabFTTransformer",
         coverage: float = 0.99,
         seed: int = 42,
+        verbose: bool = False,
     ):
         """
         :param body:
@@ -45,6 +46,7 @@ class SelectiveNetRegressor(ClassifierMixin, BaseEstimator):
         self.thetas = None
         self.model = None
         self.scaler = None
+        self.verbose = verbose
 
     def fit(
         self,
@@ -85,7 +87,8 @@ class SelectiveNetRegressor(ClassifierMixin, BaseEstimator):
         :return:
         """
         if self.model is not None:
-            print("Model already fitted")
+            if self.verbose:
+                print("Model already fitted")
         else:
             if type(X) == np.array:
                 cols = ["X{}".format(el) for el in range(X.shape[1])]
@@ -107,7 +110,9 @@ class SelectiveNetRegressor(ClassifierMixin, BaseEstimator):
                 self.device = device
             else:
                 self.device = "cpu"
-                print("Cuda is not available. The device is set to cpu.")
+                if verbose:
+                    print("Cuda is not available. The device is set to cpu.")   
+
             if scaler == "minmax":
                 self.scaler = sklearn.preprocessing.MinMaxScaler()
                 self.scaler.fit(df["TARGET"].values.reshape(-1, 1))
