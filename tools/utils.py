@@ -238,7 +238,9 @@ def train(
                             if "selnet" in criterion:
                                 if (epoch == 1) & (i == 0):
                                     print("\n criterion is {} \n".format(criterion))
-                                    print("\n target coverage is {} \n".format(coverage))
+                                    print(
+                                        "\n target coverage is {} \n".format(coverage)
+                                    )
                                 hg, aux = model.forward(x_num, x_cat)
                                 loss1 = MSE_loss_selective(
                                     y, hg, lamda=lamda, c=coverage
