@@ -111,7 +111,7 @@ class SelectiveNetRegressor(ClassifierMixin, BaseEstimator):
             else:
                 self.device = "cpu"
                 if verbose:
-                    print("Cuda is not available. The device is set to cpu.")   
+                    print("Cuda is not available. The device is set to cpu.")
 
             if scaler == "minmax":
                 self.scaler = sklearn.preprocessing.MinMaxScaler()
