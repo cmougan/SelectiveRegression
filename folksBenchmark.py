@@ -62,17 +62,25 @@ _, unc_val = clf.predict(X_val, uncertainty=uncertainty)
 interval_te = unc_te[:, 1] - unc_te[:, 0]
 interval_val = unc_val[:, 1] - unc_val[:, 0]
 
+# New uncertainty on Test and Val
+_, unc_te_New = clf.predict(X_te, return_all=True)
+interval_te_New = np.var(unc_te_New, axis=1)
+_, unc_val_New = clf.predict(X_val, return_all=True)
+interval_val_New = np.var(unc_val_New, axis=1)
+
 # %%
 # Save data
 X_te_ = X_te.copy()
 # Add interval
 X_te_["interval"] = interval_te
+X_te_["interval_New"] = interval_te_New
 X_te_["y"] = y_te
 X_te_["y_hat"] = clf.predict(X_te)
 
 X_val_ = X_val.copy()
 # Add interval
 X_val_["interval"] = interval_val
+X_val_["interval_New"] = interval_val_New
 X_val_["y"] = y_val
 X_val_["y_hat"] = clf.predict(X_val)
 body_dict = {
@@ -85,6 +93,7 @@ body_dict = {
 # %%
 # Benchmark against others
 unc = []
+unc_new = []
 var = []
 err = []
 sln = []
@@ -92,6 +101,7 @@ sln = []
 #### store coverage
 
 unc_cov = []
+unc_cov_New = []
 var_cov = []
 err_cov = []
 sln_cov = []
@@ -136,6 +146,7 @@ for coverage in cov_list:
             mean_absolute_error(aux0.y, aux0.y_hat),
         )
     )
+    err_cov.append(X_te_[X_te_["error"] == 1].shape[0])
 
     # Uncertainty with Doubt
     ## Interval is the validation one
@@ -156,7 +167,7 @@ for coverage in cov_list:
     aux = X_te_[X_te_["uncertainty"] == 0].copy()
 
     empirical_coverage = aux.shape[0] / X_te_.shape[0]
-    unc.append(mean_absolute_error(aux.y, aux.y_hat))
+    unc_cov.append(X_te_[X_te_["uncertainty"] == 1].shape[0])
     print(
         "Doubt: Coverage {:.2f} samples selected {} with error {:.2f}".format(
             empirical_coverage,
@@ -166,20 +177,21 @@ for coverage in cov_list:
         )
     )
 
-    unc_cov.append(X_te_[X_te_["uncertainty"] == 1].shape[0])
-    # Gold Case - Best possible
-    error = (y_te - clf.predict(X_te)) ** 2
-    X_te_["error"] = np.where(error < np.quantile(error, coverage), 1, 0)
-    aux0 = X_te_[X_te_["error"] == 1].copy()
-    err.append(mean_absolute_error(aux0.y, aux0.y_hat))
+    # New Dobut
+    ## Interval is the validation one
+    X_te_["uncertainty_New"] = np.where(
+        X_te_["interval_New"] < np.quantile(interval_val_New, coverage), 1, 0
+    )
+    aux = X_te_[X_te_["uncertainty_New"] == 1].copy()
+    unc_new.append(mean_absolute_error(aux.y, aux.y_hat))
+    unc_cov_New.append(X_te_[X_te_["uncertainty_New"] == 1].shape[0])
     print(
-        "Gold: Coverage {:.2f} samples selected {} with error {:.2f}".format(
+        "New Doubt: Coverage {:.2f} samples selected {} with error {:.2f}".format(
             coverage,
-            X_te_[X_te_["error"] == 1].shape[0],
-            mean_absolute_error(aux0.y, aux0.y_hat),
+            X_te_[X_te_["uncertainty_New"] == 1].shape[0],
+            mean_absolute_error(aux.y, aux.y_hat),
         )
     )
-    err_cov.append(X_te_[X_te_["error"] == 1].shape[0])
 
     # Variance
     ## Variance on the validation
@@ -199,34 +211,12 @@ for coverage in cov_list:
         )
     )
     var_cov.append(X_te_[X_te_["variance"] == 1].shape[0])
-    # Plot X, Y, model line and the uncertainty interval
-    if True == False:
-        plt.figure(figsize=(10, 10))
-        plt.scatter(X_te.Var1, y_te, alpha=0.1)
-        plt.plot(X_te.Var1, clf.predict(X_te), color="red")
-        plt.scatter(
-            X_te_[X_te_["uncertainty"] == 1].Var1,
-            X_te_[X_te_["uncertainty"] == 1].y,
-            alpha=0.1,
-            color="green",
-            label="Doubt",
-        )
-        plt.scatter(
-            X_te_[X_te_["error"] == 1].Var1,
-            X_te_[X_te_["error"] == 1].y,
-            marker="x",
-            alpha=0.1,
-            color="red",
-            label="Gold Case (Best possible)",
-        )
-        ##plt.scatter(X_te_[X_te_["variance"] == 1].Var1,X_te_[X_te_["variance"] == 1].y,alpha=0.1,color="k",label="Variance",)
-        plt.legend()
-        plt.show()
 
 # %%
 # Plot unc and var
 plt.figure(figsize=(10, 10))
 plt.plot(cov_list, unc, label="Doubt", marker="o")
+plt.plot(cov_list, unc_new, label="New Doubt", marker="o")
 plt.plot(cov_list, err, label="Gold Case (Best possible)", marker="s")
 plt.plot(cov_list, var, label="Variance", marker="d")
 plt.plot(cov_list, sln, label="SelNet", marker="^")
@@ -238,9 +228,9 @@ plt.savefig("images/folksBenchmark_performance.pdf", bbox_inches="tight")
 
 
 # %%
-
 plt.figure(figsize=(10, 10))
 plt.plot(cov_list, unc_cov, label="Doubt", marker="o")
+plt.plot(cov_list, unc_cov_New, label="New Doubt", marker="o")
 plt.plot(cov_list, err_cov, label="Gold Case (Best possible)", marker="s")
 plt.plot(cov_list, var_cov, label="Variance", marker="d")
 plt.plot(cov_list, sln_cov, label="SelNet", marker="^")
