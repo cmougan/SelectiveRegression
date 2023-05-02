@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import ttest_rel, ttest_ind
+from tqdm import tqdm
 
 plt.style.use("seaborn-whitegrid")
 from matplotlib import rcParams
@@ -45,7 +46,7 @@ ca_features = ca_features.rename(columns={"SCHL": "label"})
 uncertainty = 0.05
 # Coverage quantile of the selective regression
 coverage = 0.1
-boots = 100
+boots = 30
 # Benchmark against others
 unc = []
 unc_new = []
@@ -55,7 +56,7 @@ unc_cov = []
 unc_cov_New = []
 # %%
 # Boostrap Experiment
-for n in range(boots):
+for n in tqdm(range(boots)):
     ca_features_ = ca_features.sample(1_000)
     # Split train, test and holdout
     X_tr, X_te, y_tr, y_te = train_test_split(
