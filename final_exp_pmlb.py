@@ -4,7 +4,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-
+import argparse
+import os
 plt.style.use("seaborn-whitegrid")
 from matplotlib import rcParams
 
@@ -50,10 +51,14 @@ def experiment(X, y, dataset, meta, class_string, n_jobs_class=1, uncertainty=0.
         reg_base = LGBMRegressor(random_state=seed, n_jobs=n_jobs_class)
     elif class_string == "dt":
         reg_base = DecisionTreeRegressor(random_state=seed)
+    if os.path.exists("results/") == False:
+        os.mkdir("results")
+    if os.path.exists("results/{}".format(dataset)) == False:
+        os.mkdir("results/{}".format(dataset))
     # Convert to dataframe
-    X = pd.DataFrame(X.copy())
+    X = pd.DataFrame(X.copy()).reset_index(drop=True)
     X.columns = ["Var" + str(i) for i in X.columns]
-    y = pd.Series(y.copy())
+    y = pd.Series(y.copy()).values
     # Split train, test and holdout
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.4, random_state=seed)
     X_val, X_te, y_val, y_te = train_test_split(
@@ -79,21 +84,26 @@ def experiment(X, y, dataset, meta, class_string, n_jobs_class=1, uncertainty=0.
             tmp['target_coverage'] = coverage
             res = pd.concat([res, tmp], axis=0)
             print(tmp.head())
-    elif meta == "doubt_new":
+    elif meta == "doubtNew":
         reg = Boot(reg_base, random_seed=42)
         reg.fit(X_tr, y_tr)
         _, unc_te_new = reg.predict(X_te, return_all=True)
         _, unc_val_new = reg.predict(X_val, return_all=True)
-        interval_te_new = np.var(unc_te_new, axis=1)
-        interval_val_new = np.var(unc_val_new, axis=1)
+        interval_te_new = np.var(unc_te_new, axis=0)
+        interval_val_new = np.var(unc_val_new, axis=0)
         y_hat = reg.predict(X_te)
         res = pd.DataFrame()
         for coverage in coverages:
             tau = np.quantile(interval_val_new, coverage)
             sel_te = np.where(
-                    interval_te_new <= tau, 1, 0
+                    interval_te_new < tau, 1, 0
                 )
-            tmp = get_metrics_test(y_te, y_hat, sel_te)
+            print(sel_te.shape)
+            print(y_te.shape)
+            try:
+                tmp = get_metrics_test(y_te, y_hat, sel_te)
+            except:
+                import pdb; pdb.set_trace()
             tmp['target_coverage'] = coverage
             res = pd.concat([res, tmp], axis=0)
     elif meta == "gold":
@@ -132,25 +142,36 @@ def experiment(X, y, dataset, meta, class_string, n_jobs_class=1, uncertainty=0.
     res["trainingsize"] = train_size
     return res
 
-def main(dataset, regressors, metas):
+def main(dataset, regressors, metas, nj=1):
     np.random.seed(42)
     set_seed(42)
     try:
         X, y = fetch_data(dataset, return_X_y=True)
     except:
         raise FileNotFoundError("The dataset could not be retrieved. Please check.")
-    results = pd.DataFrame()
     for reg_string in regressors:
         for meta in metas:
-            tmp = experiment(X, y, dataset, meta, reg_string)
-            results = pd.concat([results, tmp], axis=0)
-    results.to_csv("ALL_RESULTS_{}_BASE.csv".format(dataset), index=False)
+            tmp = experiment(X, y, dataset, meta, reg_string, n_jobs_class=nj)
+            tmp.to_csv("results/{}/ALL_RESULTS_{}_{}_{}_BASE.csv".format(dataset,dataset,
+                                                                         reg_string, meta), index=False)
 
 
 if __name__ == "__main__":
-    regressors = ["lgbm", "dt", "lasso", "xgb"]
-    metas = ["gold", "plugin", "doubt", "doubt_new"]
+    parser = argparse.ArgumentParser()
+    # Random seed
+    set_seed(42)
+    parser.add_argument("--meta", nargs="+", required=True)
+    parser.add_argument("--reg", nargs="+", required=True)
+    parser.add_argument("--start", type=int, default=0)
+    parser.add_argument("--end", type=int,
+                        default=len(regression_dataset_names))
+    parser.add_argument("--jobs", type=int, default=1)
+    args = parser.parse_args()
+    regressors = args.reg
+    metas = args.meta
+    start = max(0, args.start)
+    end = min(len(regression_dataset_names), args.end)
     # metas = ["doubt"]
-
-    for dataset in tqdm(regression_dataset_names):
-        main(dataset, regressors, metas)
+    for dataset in tqdm(regression_dataset_names[start:end]):
+        # print(dataset)
+        main(dataset, regressors, metas, nj=args.jobs)

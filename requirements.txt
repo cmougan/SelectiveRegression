@@ -8,7 +8,7 @@ shap==0.41.0
 folktables==0.0.12
 tqdm==4.62.3
 pandas==1.4.3
-doubt==4.3.0
+doubt==4.4.1
 black==23.1.0
 torch==1.13.0
 torchvision==0.14.0
