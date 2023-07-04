@@ -155,9 +155,8 @@ plt.plot(ratio_params, err, label="Gold Case (Best possible)")
 plt.plot(ratio_params, var, label="Variance")
 plt.ylabel("Error (Lower is better)")
 plt.xlabel("Group Ratio (R)")
-plt.savefig("images/group.pdf", bbox_inches="tight")
 plt.legend()
+plt.savefig("images/group.pdf", bbox_inches="tight")
 plt.show()
-
 
 # %%
