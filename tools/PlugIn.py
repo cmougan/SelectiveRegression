@@ -1,60 +1,114 @@
-from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.utils.validation import check_X_y
-from sklearn.model_selection import train_test_split
+import copy
 import numpy as np
+from sklearn.model_selection import KFold, train_test_split
+import pandas as pd
+from sklearn.base import BaseEstimator, ClassifierMixin
 
-
-class PlugInRule(BaseEstimator, ClassifierMixin):
+class SCross(BaseEstimator, ClassifierMixin):
     """
-    TODO Doc
-
-    Example
-    -------
-    >>> import pandas as pd
-    >>> from sklearn.model_selection import train_test_split
-    >>> from sklearn.datasets import make_blobs
-    >>> from xgboost import XGBRegressor
-    >>> from sklearn.linear_model import LogisticRegression
-    >>> from tools.xaiUtils import PlugInRule
-    >>> X, y = make_blobs(n_samples=2000, centers=2, n_features=5, random_state=0)
-    >>> X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.5, random_state=0)
-    >>> clf = PlugInRule(model=XGBRegressor())
-    >>> clf.fit(X_tr, y_tr)
-    >>> clf.predict(X_te)
+    Class for SCrpss
     """
 
-    def __init__(
-        self,
-        model,
-        seed: int = 42,
-    ):
-        self.seed = seed
-        self.model = model
+    def __init__(self, model, cv=5, random_seed=42):
+        self.cv = cv
+        self.seed = random_seed
+        self.theta = None
+        self.models = [copy.deepcopy(model) for _ in range(cv)]
+        self.model = copy.deepcopy(model)
+
+    def fit(self, X, y, conf="error"):
+        z = []
+        idx = []
+        skf = KFold(n_splits=len(self.models), shuffle=True, random_state=self.seed)
+        for i, (train_index, test_index) in enumerate(skf.split(X, y)):
+            if isinstance(X, pd.DataFrame):
+                X_train = X.iloc[train_index]
+                X_test = X.iloc[test_index]
+            else:
+                X_train = X[train_index]
+                X_test = X[test_index]
+            if isinstance(y, pd.Series):
+                y_train = y.iloc[train_index]
+                y_test = y.iloc[test_index]
+            else:
+                y_train = y[train_index]
+                y_test = y[test_index]
+            self.models[i].fit(X_train, y_train)
+            # quantiles
+            preds = self.models[i].predict(X_test)
+            if conf == "variance":
+            ####HERE we use variance as a confidence
+                self.confidence_f = "variance"
+                variance = (preds - np.mean(preds)) ** 2
+                z.append(variance)
+            elif conf == "error":
+                self.confidence_f = "error"
+                error = (y_test - self.models[i].predict(X_test)) ** 2
+                z.append(error.reshape(-1,1))
+                idx.append(test_index)
+            else:
+                raise NotImplementedError("Confidence not yet implemented.")
+        self.confs = np.concatenate(z).ravel()
+        if self.confidence_f == "error":
+            self.idxs = list(np.concatenate(idx).ravel())
+            self.err_model = copy.deepcopy(self.model)
+            if isinstance(X, pd.DataFrame):
+                self.err_model.fit(X.iloc[self.idxs, :], self.confs)
+            else:
+                self.err_model.fit(X[self.idxs, :], self.confs)
+        self.model.fit(X, y)
+
+    def predict(self, X):
+        scores = self.model.predict(X)
+        return scores
+    def calibrate(self, X, cov):
+        if self.confidence_f == "variance":
+            sub_confs_1, sub_confs_2 = train_test_split(self.confs, test_size=.5, random_state=self.seed)
+            tau = (1 / np.sqrt(2))
+            self.theta = (tau * np.quantile(self.confs, cov) + (1 - tau) * (
+                    .5 * np.quantile(sub_confs_1, cov) + .5 * np.quantile(sub_confs_2, cov)))
+        elif self.confidence_f == "error":
+            confs_val = self.err_model.predict(X)
+            sub_confs_1, sub_confs_2 = train_test_split(confs_val, test_size=.5, random_state=self.seed)
+            tau = (1 / np.sqrt(2))
+            self.theta = (tau * np.quantile(confs_val, cov) + (1 - tau) * (
+                    .5 * np.quantile(sub_confs_1, cov) + .5 * np.quantile(sub_confs_2, cov)))
+    def select(self, X, X_cal, cov):
+            self.calibrate(X_cal, cov)
+            preds = self.predict(X)
+            if self.confidence_f == "variance":
+                return np.where((preds-np.mean(preds))**2 < self.theta, 1, 0)
+            if self.confidence_f == "error":
+                return np.where((self.err_model.predict(X)) < self.theta, 1, 0)
+            else:
+                raise NotImplementedError("Confidence not yet implemented.")
+
+
+
+class PlugIn(BaseEstimator):
+    """
+    Class for SCrpss
+    """
+
+    def __init__(self, model, random_seed=42):
+        self.seed = random_seed
+        self.theta = None
+        self.model = copy.deepcopy(model)
+        self.err_model = copy.deepcopy(model)
 
     def fit(self, X, y):
-        # Dimensionality check
-        check_X_y(X, y)
+        self.model.fit(X,y)
+        errors = (y-self.model.predict(X))**2
+        self.err_model.fit(X, errors)
 
-        # Split the data and save hold out sets
-        X_train, self.X_hold, y_train, self.y_hold = train_test_split(
-            X, y, stratify=y, random_state=self.seed, test_size=0.1
-        )
-        # Fit the model
-        self.model.fit(X_train, y_train)
+    def predict(self, X):
+        scores = self.model.predict(X)
+        return scores
+    def calibrate(self, X, cov):
+        confs_val = self.err_model.predict(X)
+        self.theta =  np.quantile(confs_val, cov)
+    def select(self, X, X_cal, cov):
+        self.calibrate(X_cal, cov)
+        preds = self.predict(X)
+        return np.where((self.err_model.predict(X)) < self.theta, 1, 0)
 
-    def compute_theta(self, q: int = 0.9):
-        # Compute the scores
-        scores = np.max(self.model.predict_proba(self.X_hold), axis=1)
-
-        # TODO : deal with quantile lists
-
-        # Compute the theta
-        self.theta = np.quantile(scores, q)
-
-    def predict(self, X, cov: int = 0.9):
-        # TODO check if the below function has been called
-        self.compute_theta(1 - cov)
-
-        probas = self.model.predict_proba(X)
-        confs = np.max(probas, axis=1)
-        return confs > self.theta
