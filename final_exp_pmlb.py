@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import argparse
 import os
+from tools.methods import SCross, PlugIn
 plt.style.use("seaborn-whitegrid")
 from matplotlib import rcParams
 
@@ -38,7 +39,7 @@ def get_metrics_test(true, y_hat, selected):
     tmp = pd.DataFrame([[coverage, mae, mse]], columns=["coverage", "MAE", "MSE"])
     return tmp
 
-def experiment(X, y, dataset, meta, class_string, n_jobs_class=1, uncertainty=0.05,
+def experiment(X, y, dataset, metas, class_string, n_jobs_class=1, uncertainty=0.05,
                seed=42, coverages=[.99, .95, .9, .85, .8, .75, .7, .65, .6, .55, .5],
                n_boot=None):
     if class_string == "lasso":
@@ -66,81 +67,94 @@ def experiment(X, y, dataset, meta, class_string, n_jobs_class=1, uncertainty=0.
     )
     n_features = len(X.columns)
     train_size = X_tr.shape[0]
-    if meta == "doubt":
-        reg = Boot(reg_base, random_seed=42)
-        reg.fit(X_tr, y_tr)
-        _, unc_te = reg.predict(X_te, uncertainty=uncertainty)
-        _, unc_val = reg.predict(X_val, uncertainty=uncertainty)
-        interval_te = unc_te[:, 1] - unc_te[:, 0]
-        interval_val = unc_val[:, 1] - unc_val[:, 0]
-        y_hat = reg.predict(X_te)
-        res = pd.DataFrame()
-        for coverage in coverages:
-            tau = np.quantile(interval_val, coverage)
-            sel_te = np.where(
-                    interval_te < tau, 1, 0
-                )
-            tmp = get_metrics_test(y_te, y_hat, sel_te)
-            tmp['target_coverage'] = coverage
-            res = pd.concat([res, tmp], axis=0)
-            print(tmp.head())
-    elif meta == "doubtNew":
-        reg = Boot(reg_base, random_seed=42)
-        reg.fit(X_tr, y_tr)
-        _, unc_te_new = reg.predict(X_te, return_all=True)
-        _, unc_val_new = reg.predict(X_val, return_all=True)
-        interval_te_new = np.var(unc_te_new, axis=0)
-        interval_val_new = np.var(unc_val_new, axis=0)
-        y_hat = reg.predict(X_te)
-        res = pd.DataFrame()
-        for coverage in coverages:
-            tau = np.quantile(interval_val_new, coverage)
-            sel_te = np.where(
-                    interval_te_new < tau, 1, 0
-                )
-            print(sel_te.shape)
-            print(y_te.shape)
-            try:
+    reg = Boot(reg_base, random_seed=42)
+    reg.fit(X_tr, y_tr, n_boots=n_boot)
+    print(len(reg._models))
+    results = pd.DataFrame()
+    for meta in metas:
+        if meta == "doubt":
+            _, unc_te = reg.predict(X_te, uncertainty=uncertainty)
+            _, unc_val = reg.predict(X_val, uncertainty=uncertainty)
+            interval_te = unc_te[:, 1] - unc_te[:, 0]
+            interval_val = unc_val[:, 1] - unc_val[:, 0]
+            y_hat = reg.predict(X_te)
+            res = pd.DataFrame()
+            for coverage in coverages:
+                tau = np.quantile(interval_val, coverage)
+                sel_te = np.where(
+                        interval_te <= tau, 1, 0
+                    )
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-            except:
-                import pdb; pdb.set_trace()
-            tmp['target_coverage'] = coverage
-            res = pd.concat([res, tmp], axis=0)
-    elif meta == "gold":
-        reg = reg_base
-        reg.fit(X_tr, y_tr)
-        error = (y_te - reg.predict(X_te)) ** 2  # error on the test set
-        y_hat = reg.predict(X_te)
-        res = pd.DataFrame()
-        for coverage in coverages:
-            tau_gold = np.quantile(error,
-                                   coverage)  # tau on the test set - we accept instances below the error tau_gold
-            sel_te = np.where(error <= tau_gold, 1, 0)
-            tmp = get_metrics_test(y_te, y_hat, sel_te)
-            tmp['target_coverage'] = coverage
-            res = pd.concat([res, tmp], axis=0)
-    elif meta == "plugin":
-        reg = reg_base
-        reg.fit(X_tr, y_tr)
-        y_hat = reg.predict(X_te)
-        y_hat_val = reg.predict(X_val)
-        var_val = (np.mean(y_hat_val) - y_hat_val) ** 2
-        var_te = (np.mean(y_hat) - y_hat) ** 2
-        res = pd.DataFrame()
-        for coverage in coverages:
-            tau = np.quantile(var_val, coverage)
-            sel_te = np.where(
-                var_te <= tau, 1, 0
-            )
-            tmp = get_metrics_test(y_te, y_hat, sel_te)
-            tmp['target_coverage'] = coverage
-            res = pd.concat([res, tmp], axis=0)
-    res["meta"] = meta
-    res["model"] = class_string
-    res["dataset"] = dataset
-    res["features"] = n_features
-    res["trainingsize"] = train_size
-    return res
+                tmp['target_coverage'] = coverage
+                res = pd.concat([res, tmp], axis=0)
+        elif meta == "doubtNew":
+            _, unc_te_new = reg.predict(X_te, return_all=True)
+            _, unc_val_new = reg.predict(X_val, return_all=True)
+            interval_te_new = np.var(unc_te_new.T, axis=0)
+            interval_val_new = np.var(unc_val_new.T, axis=0)
+            y_hat = reg.predict(X_te)
+            res = pd.DataFrame()
+            for coverage in coverages:
+                tau = np.quantile(interval_val_new, coverage)
+                sel_te = np.where(
+                        interval_te_new <= tau, 1, 0
+                    )
+                tmp = get_metrics_test(y_te, y_hat, sel_te)
+                tmp['target_coverage'] = coverage
+                res = pd.concat([res, tmp], axis=0)
+        elif meta == "gold":
+            error = (y_te - reg.predict(X_te)) ** 2  # error on the test set
+            y_hat = reg.predict(X_te)
+            res = pd.DataFrame()
+            for coverage in coverages:
+                tau_gold = np.quantile(error,
+                                       coverage)  # tau on the test set - we accept instances below the error tau_gold
+                sel_te = np.where(error <= tau_gold, 1, 0)
+                tmp = get_metrics_test(y_te, y_hat, sel_te)
+                tmp['target_coverage'] = coverage
+                res = pd.concat([res, tmp], axis=0)
+        elif meta == "plugin":
+            rplug = PlugIn(reg_base)
+            rplug.fit(X_tr, y_tr)
+            y_hat = rplug.predict(X_te)
+            res = pd.DataFrame()
+            for coverage in coverages:
+                sel_te = rplug.select(X_te, X_val, coverage)
+                tmp = get_metrics_test(y_te, y_hat, sel_te)
+                tmp['target_coverage'] = coverage
+                res = pd.concat([res, tmp], axis=0)
+        elif meta == "pluginVar":
+            y_hat_val = reg.predict(X_val)
+            y_hat = reg.predict(X_te)
+            var_val = (y_hat_val - np.mean(y_hat_val))**2
+            var_te = (y_hat - np.mean(y_hat)) ** 2
+            res = pd.DataFrame()
+            for coverage in coverages:
+                tau = np.quantile(var_val, coverage)
+                sel_te = np.where(
+                    var_te <= tau, 1, 0
+                )
+                tmp = get_metrics_test(y_te, y_hat, sel_te)
+                tmp['target_coverage'] = coverage
+                res = pd.concat([res, tmp], axis=0)
+        elif meta == "scross":
+            rcross = SCross(reg_base)
+            rcross.fit(X_tr, y_tr)
+            y_hat = rcross.predict(X_te)
+            res = pd.DataFrame()
+            for coverage in coverages:
+                sel_te = rcross.select(X_te, X_val, coverage)
+                tmp = get_metrics_test(y_te, y_hat, sel_te)
+                tmp['target_coverage'] = coverage
+                res = pd.concat([res, tmp], axis=0)
+
+        res["meta"] = meta
+        res["model"] = class_string
+        res["dataset"] = dataset
+        res["features"] = n_features
+        res["trainingsize"] = train_size
+        results = pd.concat([results, res], axis=0)
+    return results
 
 def main(dataset, regressors, metas, nj=1):
     np.random.seed(42)
@@ -150,10 +164,9 @@ def main(dataset, regressors, metas, nj=1):
     except:
         raise FileNotFoundError("The dataset could not be retrieved. Please check.")
     for reg_string in regressors:
-        for meta in metas:
-            tmp = experiment(X, y, dataset, meta, reg_string, n_jobs_class=nj)
-            tmp.to_csv("results/{}/ALL_RESULTS_{}_{}_{}_BASE.csv".format(dataset,dataset,
-                                                                         reg_string, meta), index=False)
+        tmp = experiment(X, y, dataset, metas, reg_string, n_jobs_class=nj)
+        tmp.to_csv("results/{}/ALL_RESULTS_{}_{}_{}_BASE.csv".format(dataset,dataset,
+                                                                     reg_string, "-".join(metas)), index=False)
 
 
 if __name__ == "__main__":
