@@ -215,6 +215,7 @@ if __name__ == "__main__":
     start = max(0, args.start)
     end = min(len(regression_dataset_names), args.end)
     # metas = ["doubt"]
-    for dataset in tqdm(regression_dataset_names[start:end]):
+    list_datasets = pd.read_csv("penn_ML_datasets.csv")["Dataset"].tolist()
+    for dataset in tqdm(list_datasets[start:end]):
         # print(dataset)
         main(dataset, regressors, metas, nj=args.jobs, seed=args.seed)
