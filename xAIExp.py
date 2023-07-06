@@ -168,4 +168,3 @@ X_te2["COW"] = X_te2["COW"] + np.random.normal(5, 1, X_te2.shape[0])
 explainer = shap.Explainer(audit)
 shap_values = explainer(X_te2)
 shap.plots.bar(shap_values)
-# %%
