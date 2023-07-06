@@ -1,29 +1,17 @@
 # %%
 # Data from https://www.kaggle.com/datasets/chandramoulinaidu/house-price-prediction-cleaned-dataset?resource=download&select=Cleaned+train.csv
 # Import candidate models
-from doubt import Boot, QuantileRegressor, QuantileRegressionForest
-from sklearn.linear_model import (
-    LinearRegression,
-    PoissonRegressor,
-    GammaRegressor,
-    HuberRegressor,
-)
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.svm import LinearSVR
-from sklearn.neural_network import MLPRegressor
-from catboost import CatBoostRegressor
-from xgboost import XGBRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import cross_val_predict
+from doubt import Boot
+from sklearn.linear_model import LinearRegression
 
+from folktables import ACSDataSource, ACSIncome
+from xgboost import XGBRegressor, XGBClassifier
+from sklearn.model_selection import train_test_split
 
 # Import external libraries
 import pandas as pd
 import numpy as np
-from tqdm.auto import tqdm, trange
-from scipy.stats import ks_2samp, entropy, kruskal
 import matplotlib.pyplot as plt
-import itertools
 from matplotlib import rcParams
 
 
@@ -35,9 +23,13 @@ rcParams["figure.figsize"] = 16, 8
 
 plt.style.use("ggplot")
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import (
+    mean_squared_error,
+    r2_score,
+    mean_absolute_error,
+    roc_auc_score,
+)
 import warnings
-from collections import defaultdict
 import seaborn as sns
 import pdb
 
@@ -51,9 +43,23 @@ import warnings
 warnings.filterwarnings("ignore")
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import GradientBoostingRegressor
-from category_encoders import MEstimateEncoder
+from category_encoders.m_estimate import MEstimateEncoder
+
 
 # %%
+def get_metrics_test(true, y_hat, selected):
+    if np.sum(selected) > 0:
+        coverage = len(selected[selected == 1]) / len(selected)
+        mae = mean_absolute_error(true[selected == 1], y_hat[selected == 1])
+        mse = mean_squared_error(true[selected == 1], y_hat[selected == 1])
+    else:
+        coverage = -1
+        mae = -1
+        mse = -1
+    tmp = pd.DataFrame([[coverage, mae, mse]], columns=["coverage", "MAE", "MSE"])
+    return tmp
+
+
 def explain(xgb: bool = True):
     """
     Provide a SHAP explanation by fitting MEstimate and GBDT
@@ -82,9 +88,61 @@ def explain(xgb: bool = True):
 
 
 # %%
-df = pd.read_csv("data/trainclean.csv")
-df = df.drop(columns="Id")
+# Load Data
+data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
+ca_data = data_source.get_data(states=["CA"], download=True)
+# features, label, group = ACSEmployment.df_to_numpy(acs_data)
+ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
+ca_features = ca_features.drop(columns="RAC1P")
+ca_features["group"] = ca_group
+# ca_features["label"] = ca_labels
+# Rename SCHL as label
+ca_features = ca_features.rename(columns={"SCHL": "label"})
+ca_features
+# Smaller dataset
+ca_features = ca_features.sample(4_000)
+# Split train, test, val and holdout set in 25-25-25-25
+X = ca_features.drop(columns="label")
+y = ca_features.label
+X1, X2, y1, y2 = train_test_split(X, y, test_size=0.5, random_state=0)
+X_tr, X_hold, y_tr, y_hold = train_test_split(X1, y1, test_size=0.5, random_state=0)
+X_val, X_te, y_val, y_te = train_test_split(X2, y2, test_size=0.5, random_state=0)
+del X1, X2, y1, y2
 
-df["random"] = np.random.random(df.shape[0])
-df["random"].mean()
+# %%
+# Fit model
+reg = Boot(XGBRegressor(), random_seed=42)
+reg.fit(X_tr, y_tr)
+# Make predictions
+_, unc_te_new = reg.predict(X_te, return_all=True)
+_, unc_val_new = reg.predict(X_val, return_all=True)
+_, unc_hold_new = reg.predict(X_hold, return_all=True)
+interval_te_new = np.var(unc_te_new.T, axis=0)
+interval_val_new = np.var(unc_val_new.T, axis=0)
+interval_hold_new = np.var(unc_hold_new.T, axis=0)
+y_hat = reg.predict(X_te)
+res = pd.DataFrame()
+coverage = 0.85
+tau = np.quantile(interval_val_new, coverage)
+sel_hold = np.where(interval_hold_new <= tau, 1, 0)
+sel_te = np.where(interval_te_new <= tau, 1, 0)
+tmp = get_metrics_test(y_te, y_hat, sel_te)
+tmp["target_coverage"] = coverage
+res = pd.concat([res, tmp], axis=0)
+# %%
+# G
+audit = XGBClassifier()
+audit.fit(X_hold, sel_hold)
+# Lets evaluate on val -- Funny but it does not seem so too bad
+roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1])
+# %%
+# Explain Auditor
+explainer = shap.Explainer(audit)
+shap_values = explainer(X_val)
+
+
+# %%
+shap.plots.bar(shap_values)
+# %%
+X_te.shape
 # %%
