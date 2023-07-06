@@ -103,6 +103,9 @@ ca_features
 ca_features = ca_features.sample(4_000)
 # Split train, test, val and holdout set in 25-25-25-25
 X = ca_features.drop(columns="label")
+
+# Add random noise to X
+X["random"] = np.random.normal(0, 1, X.shape[0])
 y = ca_features.label
 X1, X2, y1, y2 = train_test_split(X, y, test_size=0.5, random_state=0)
 X_tr, X_hold, y_tr, y_hold = train_test_split(X1, y1, test_size=0.5, random_state=0)
