@@ -4,6 +4,7 @@ from sklearn.model_selection import KFold, train_test_split
 import pandas as pd
 from sklearn.base import BaseEstimator, ClassifierMixin
 
+
 class SCross(BaseEstimator, ClassifierMixin):
     """
     Class for SCrpss
@@ -37,14 +38,14 @@ class SCross(BaseEstimator, ClassifierMixin):
             # quantiles
             preds = self.models[i].predict(X_test)
             if conf == "variance":
-            ####HERE we use variance as a confidence
+                ####HERE we use variance as a confidence
                 self.confidence_f = "variance"
                 variance = (preds - np.mean(preds)) ** 2
                 z.append(variance)
             elif conf == "error":
                 self.confidence_f = "error"
                 error = (y_test - self.models[i].predict(X_test)) ** 2
-                z.append(error.reshape(-1,1))
+                z.append(error.reshape(-1, 1))
                 idx.append(test_index)
             else:
                 raise NotImplementedError("Confidence not yet implemented.")
@@ -61,28 +62,37 @@ class SCross(BaseEstimator, ClassifierMixin):
     def predict(self, X):
         scores = self.model.predict(X)
         return scores
+
     def calibrate(self, X, cov):
         if self.confidence_f == "variance":
-            sub_confs_1, sub_confs_2 = train_test_split(self.confs, test_size=.5, random_state=self.seed)
-            tau = (1 / np.sqrt(2))
-            self.theta = (tau * np.quantile(self.confs, cov) + (1 - tau) * (
-                    .5 * np.quantile(sub_confs_1, cov) + .5 * np.quantile(sub_confs_2, cov)))
+            sub_confs_1, sub_confs_2 = train_test_split(
+                self.confs, test_size=0.5, random_state=self.seed
+            )
+            tau = 1 / np.sqrt(2)
+            self.theta = tau * np.quantile(self.confs, cov) + (1 - tau) * (
+                0.5 * np.quantile(sub_confs_1, cov)
+                + 0.5 * np.quantile(sub_confs_2, cov)
+            )
         elif self.confidence_f == "error":
             confs_val = self.err_model.predict(X)
-            sub_confs_1, sub_confs_2 = train_test_split(confs_val, test_size=.5, random_state=self.seed)
-            tau = (1 / np.sqrt(2))
-            self.theta = (tau * np.quantile(confs_val, cov) + (1 - tau) * (
-                    .5 * np.quantile(sub_confs_1, cov) + .5 * np.quantile(sub_confs_2, cov)))
-    def select(self, X, X_cal, cov):
-            self.calibrate(X_cal, cov)
-            preds = self.predict(X)
-            if self.confidence_f == "variance":
-                return np.where((preds-np.mean(preds))**2 < self.theta, 1, 0)
-            if self.confidence_f == "error":
-                return np.where((self.err_model.predict(X)) < self.theta, 1, 0)
-            else:
-                raise NotImplementedError("Confidence not yet implemented.")
+            sub_confs_1, sub_confs_2 = train_test_split(
+                confs_val, test_size=0.5, random_state=self.seed
+            )
+            tau = 1 / np.sqrt(2)
+            self.theta = tau * np.quantile(confs_val, cov) + (1 - tau) * (
+                0.5 * np.quantile(sub_confs_1, cov)
+                + 0.5 * np.quantile(sub_confs_2, cov)
+            )
 
+    def select(self, X, X_cal, cov):
+        self.calibrate(X_cal, cov)
+        preds = self.predict(X)
+        if self.confidence_f == "variance":
+            return np.where((preds - np.mean(preds)) ** 2 < self.theta, 1, 0)
+        if self.confidence_f == "error":
+            return np.where((self.err_model.predict(X)) < self.theta, 1, 0)
+        else:
+            raise NotImplementedError("Confidence not yet implemented.")
 
 
 class PlugIn(BaseEstimator):
@@ -97,18 +107,19 @@ class PlugIn(BaseEstimator):
         self.err_model = copy.deepcopy(model)
 
     def fit(self, X, y):
-        self.model.fit(X,y)
-        errors = (y-self.model.predict(X))**2
+        self.model.fit(X, y)
+        errors = (y - self.model.predict(X)) ** 2
         self.err_model.fit(X, errors)
 
     def predict(self, X):
         scores = self.model.predict(X)
         return scores
+
     def calibrate(self, X, cov):
         confs_val = self.err_model.predict(X)
-        self.theta =  np.quantile(confs_val, cov)
+        self.theta = np.quantile(confs_val, cov)
+
     def select(self, X, X_cal, cov):
         self.calibrate(X_cal, cov)
         preds = self.predict(X)
         return np.where((self.err_model.predict(X)) < self.theta, 1, 0)
-

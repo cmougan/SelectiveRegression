@@ -7,6 +7,7 @@ from tqdm import tqdm
 import argparse
 import os
 from tools.methods import SCross, PlugIn
+
 plt.style.use("seaborn-whitegrid")
 from matplotlib import rcParams
 
@@ -16,16 +17,16 @@ from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.preprocessing import MinMaxScaler
+
 # Doubt
 from doubt import Boot
 from xgboost import XGBRegressor
 from tools.utils import set_seed
 from lightgbm import LGBMRegressor
+
 # Benchmark
 from pmlb import regression_dataset_names, fetch_data
 from mapie.regression import MapieRegressor
-
-
 
 
 def get_metrics_test(true, y_hat, selected):
@@ -40,9 +41,18 @@ def get_metrics_test(true, y_hat, selected):
     tmp = pd.DataFrame([[coverage, mae, mse]], columns=["coverage", "MAE", "MSE"])
     return tmp
 
-def experiment(X, y, dataset, metas, reg_base, uncertainty=0.05,
-               seed=42, coverages=[.99, .95, .9, .85, .8, .75, .7, .65, .6, .55, .5],
-               n_boot=None):
+
+def experiment(
+    X,
+    y,
+    dataset,
+    metas,
+    reg_base,
+    uncertainty=0.05,
+    seed=42,
+    coverages=[0.99, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5],
+    n_boot=None,
+):
 
     if os.path.exists("results/") == False:
         os.mkdir("results")
@@ -73,11 +83,9 @@ def experiment(X, y, dataset, metas, reg_base, uncertainty=0.05,
             res = pd.DataFrame()
             for coverage in coverages:
                 tau = np.quantile(interval_val, coverage)
-                sel_te = np.where(
-                        interval_te <= tau, 1, 0
-                    )
+                sel_te = np.where(interval_te <= tau, 1, 0)
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-                tmp['target_coverage'] = coverage
+                tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         elif meta == "doubtNew":
             _, unc_te_new = reg.predict(X_te, return_all=True)
@@ -88,22 +96,21 @@ def experiment(X, y, dataset, metas, reg_base, uncertainty=0.05,
             res = pd.DataFrame()
             for coverage in coverages:
                 tau = np.quantile(interval_val_new, coverage)
-                sel_te = np.where(
-                        interval_te_new <= tau, 1, 0
-                    )
+                sel_te = np.where(interval_te_new <= tau, 1, 0)
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-                tmp['target_coverage'] = coverage
+                tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         elif meta == "gold":
             error = (y_te - reg.predict(X_te)) ** 2  # error on the test set
             y_hat = reg.predict(X_te)
             res = pd.DataFrame()
             for coverage in coverages:
-                tau_gold = np.quantile(error,
-                                       coverage)  # tau on the test set - we accept instances below the error tau_gold
+                tau_gold = np.quantile(
+                    error, coverage
+                )  # tau on the test set - we accept instances below the error tau_gold
                 sel_te = np.where(error <= tau_gold, 1, 0)
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-                tmp['target_coverage'] = coverage
+                tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         elif meta == "plugin":
             rplug = PlugIn(reg_base)
@@ -113,21 +120,19 @@ def experiment(X, y, dataset, metas, reg_base, uncertainty=0.05,
             for coverage in coverages:
                 sel_te = rplug.select(X_te, X_val, coverage)
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-                tmp['target_coverage'] = coverage
+                tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         elif meta == "pluginVar":
             y_hat_val = reg.predict(X_val)
             y_hat = reg.predict(X_te)
-            var_val = (y_hat_val - np.mean(y_hat_val))**2
+            var_val = (y_hat_val - np.mean(y_hat_val)) ** 2
             var_te = (y_hat - np.mean(y_hat)) ** 2
             res = pd.DataFrame()
             for coverage in coverages:
                 tau = np.quantile(var_val, coverage)
-                sel_te = np.where(
-                    var_te <= tau, 1, 0
-                )
+                sel_te = np.where(var_te <= tau, 1, 0)
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-                tmp['target_coverage'] = coverage
+                tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         elif meta == "mapieBase":
             mapie = MapieRegressor(reg_base, cv=5, random_state=seed)
@@ -139,11 +144,9 @@ def experiment(X, y, dataset, metas, reg_base, uncertainty=0.05,
             res = pd.DataFrame()
             for coverage in coverages:
                 tau = np.quantile(interval_val, coverage)
-                sel_te = np.where(
-                        interval_te <= tau, 1, 0
-                    )
+                sel_te = np.where(interval_te <= tau, 1, 0)
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-                tmp['target_coverage'] = coverage
+                tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         elif meta == "scross":
             rcross = SCross(reg_base)
@@ -153,7 +156,7 @@ def experiment(X, y, dataset, metas, reg_base, uncertainty=0.05,
             for coverage in coverages:
                 sel_te = rcross.select(X_te, X_val, coverage)
                 tmp = get_metrics_test(y_te, y_hat, sel_te)
-                tmp['target_coverage'] = coverage
+                tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         res["meta"] = meta
         res["model"] = reg_base.__class__.__name__
@@ -162,6 +165,7 @@ def experiment(X, y, dataset, metas, reg_base, uncertainty=0.05,
         res["trainingsize"] = train_size
         results = pd.concat([results, res], axis=0)
     return results
+
 
 def main(dataset, regressors, metas, nj=1, seed=42):
     np.random.seed(seed)
@@ -172,8 +176,8 @@ def main(dataset, regressors, metas, nj=1, seed=42):
         scaler.fit(X=X)
         X = scaler.transform(X=X)
         scaler = MinMaxScaler()
-        scaler.fit(y.reshape(-1,1))
-        y = scaler.transform(y.reshape(-1,1)).flatten()
+        scaler.fit(y.reshape(-1, 1))
+        y = scaler.transform(y.reshape(-1, 1)).flatten()
     except:
         raise FileNotFoundError("The dataset could not be retrieved. Please check.")
     for reg_string in regressors:
@@ -189,8 +193,12 @@ def main(dataset, regressors, metas, nj=1, seed=42):
             reg_base = DecisionTreeRegressor(random_state=seed)
         tmp = experiment(X, y, dataset, metas, reg_base, seed=seed)
         tmp["seed"] = seed
-        tmp.to_csv("results/{}/ALL_RESULTS_{}_{}_{}_SEED{}.csv".format(dataset,dataset,
-                                                                     reg_string, "-".join(metas), seed), index=False)
+        tmp.to_csv(
+            "results/{}/ALL_RESULTS_{}_{}_{}_SEED{}.csv".format(
+                dataset, dataset, reg_string, "-".join(metas), seed
+            ),
+            index=False,
+        )
 
 
 if __name__ == "__main__":
@@ -198,8 +206,7 @@ if __name__ == "__main__":
     parser.add_argument("--meta", nargs="+", required=True)
     parser.add_argument("--reg", nargs="+", required=True)
     parser.add_argument("--start", type=int, default=0)
-    parser.add_argument("--end", type=int,
-                        default=len(regression_dataset_names))
+    parser.add_argument("--end", type=int, default=len(regression_dataset_names))
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
 

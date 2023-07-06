@@ -473,5 +473,3 @@ def tabular_model(model_type, x_num, cat_dim, meta, body_dict):
     else:
         raise NotImplementedError("The model architecture is not implemented yet.")
     return model
-
-
