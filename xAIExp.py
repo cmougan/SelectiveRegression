@@ -1,5 +1,4 @@
 # %%
-# Data from https://www.kaggle.com/datasets/chandramoulinaidu/house-price-prediction-cleaned-dataset?resource=download&select=Cleaned+train.csv
 # Import candidate models
 from doubt import Boot
 from sklearn.linear_model import LinearRegression
@@ -23,6 +22,7 @@ rcParams["figure.figsize"] = 16, 8
 
 plt.style.use("ggplot")
 from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     mean_squared_error,
     r2_score,
@@ -103,15 +103,18 @@ ca_features
 ca_features = ca_features.sample(4_000)
 # Split train, test, val and holdout set in 25-25-25-25
 X = ca_features.drop(columns="label")
+
+# Add random noise to X
+X["random"] = np.random.normal(0, 1, X.shape[0])
 y = ca_features.label
 X1, X2, y1, y2 = train_test_split(X, y, test_size=0.5, random_state=0)
-X_tr, X_hold, y_tr, y_hold = train_test_split(X1, y1, test_size=0.5, random_state=0)
-X_val, X_te, y_val, y_te = train_test_split(X2, y2, test_size=0.5, random_state=0)
-del X1, X2, y1, y2
+X_tr, X_val, y_tr, y_val = train_test_split(X1, y1, test_size=0.5, random_state=0)
+X_hold, X_te, y_hold, y_te = train_test_split(X2, y2, test_size=0.5, random_state=0)
+
 
 # %%
 # Fit model
-reg = Boot(XGBRegressor(), random_seed=42)
+reg = Boot(LinearRegression(), random_seed=42)
 reg.fit(X_tr, y_tr)
 # Make predictions
 _, unc_te_new = reg.predict(X_te, return_all=True)
@@ -130,7 +133,7 @@ tmp = get_metrics_test(y_te, y_hat, sel_te)
 tmp["target_coverage"] = coverage
 res = pd.concat([res, tmp], axis=0)
 # %%
-# G
+# Basic Experiment
 audit = XGBClassifier()
 audit.fit(X_hold, sel_hold)
 # Lets evaluate on val -- Funny but it does not seem so too bad
@@ -138,11 +141,30 @@ roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1])
 # %%
 # Explain Auditor
 explainer = shap.Explainer(audit)
-shap_values = explainer(X_val)
-
-
-# %%
+shap_values = explainer(X_te)
 shap.plots.bar(shap_values)
 # %%
-X_te.shape
+# Shifted feature experiment
+X_te2 = X_te.copy()
+X_te2["random"] = X_te2["random"] + np.random.normal(5, 1, X_te2.shape[0])
+X_te2["COW"] = X_te2["COW"] + np.random.normal(5, 1, X_te2.shape[0])
+X_hold2 = X_hold.copy()
+X_hold2["random"] = X_hold2["random"] + np.random.normal(5, 1, X_hold2.shape[0])
+X_hold2["COW"] = X_hold2["COW"] + np.random.normal(5, 1, X_hold2.shape[0])
+
+audit.fit(X_hold2, sel_hold)
+# Lets evaluate on val -- Funny but it does not seem so too bad
+roc_auc_score(sel_te, audit.predict_proba(X_te2)[:, 1])
 # %%
+# Explain Auditor
+explainer = shap.Explainer(audit)
+shap_values = explainer(X_te2)
+shap.plots.bar(shap_values)
+# %%
+X_te2 = X_te.copy()
+X_te2["random"] = X_te2["random"] + np.random.normal(5, 1, X_te2.shape[0])
+X_te2["COW"] = X_te2["COW"] + np.random.normal(5, 1, X_te2.shape[0])
+# %%
+explainer = shap.Explainer(audit)
+shap_values = explainer(X_te2)
+shap.plots.bar(shap_values)
