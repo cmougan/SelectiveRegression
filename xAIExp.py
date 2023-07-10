@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
-
+from tools.methods import PlugIn
 
 plt.style.use("seaborn-whitegrid")
 rcParams["axes.labelsize"] = 14
@@ -22,7 +22,7 @@ rcParams["figure.figsize"] = 16, 8
 
 plt.style.use("ggplot")
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, Lasso
 from sklearn.metrics import (
     mean_squared_error,
     r2_score,
@@ -170,18 +170,22 @@ explainer = shap.Explainer(audit, X_tr)
 shap_values = explainer(X_te2)
 shap.plots.bar(shap_values)
 # %%
-shap.plots.waterfall(shap_values[0])
-# %%
-shap.plots.beeswarm(shap_values)
-# %%
-print("AUC", roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1]))
-print("F1", f1_score(sel_te, audit.predict(X_te)))
-print("Precision", precision_score(sel_te, audit.predict(X_te)))
-print("Recall", recall_score(sel_te, audit.predict(X_te)))
-print("---------Shift")
+# Plug In
+rplug = PlugIn(reg)
+rplug.fit(X_tr, y_tr)
+# plug_err = rplug.err_model.predict(X_te)
+plug_err = rplug.select(X_te, X_hold, coverage)
+# Auditor
+audit = LogisticRegression(penalty="l1", solver="liblinear")
+audit.fit(X_hold, plug_err)
+# Evaluate
 print("AUC", roc_auc_score(sel_te, audit.predict_proba(X_te2)[:, 1]))
-print("f1", f1_score(sel_te, audit.predict(X_te2)))
-print("prec", precision_score(sel_te, audit.predict(X_te2)))
-print("rec", recall_score(sel_te, audit.predict(X_te2)))
+print("F1", f1_score(sel_te, audit.predict(X_te2)))
+print("Precision", precision_score(sel_te, audit.predict(X_te2)))
+print("Recall", recall_score(sel_te, audit.predict(X_te2)))
+# Explain Auditor
+explainer = shap.Explainer(audit, X_tr)
+shap_values = explainer(X_te2)
+shap.plots.bar(shap_values)
 
 # %%
