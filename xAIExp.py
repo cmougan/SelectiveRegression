@@ -28,6 +28,9 @@ from sklearn.metrics import (
     r2_score,
     mean_absolute_error,
     roc_auc_score,
+    f1_score,
+    precision_score,
+    recall_score,
 )
 import warnings
 import seaborn as sns
@@ -125,7 +128,7 @@ interval_val_new = np.var(unc_val_new.T, axis=0)
 interval_hold_new = np.var(unc_hold_new.T, axis=0)
 y_hat = reg.predict(X_te)
 res = pd.DataFrame()
-coverage = 0.85
+coverage = 0.50
 tau = np.quantile(interval_val_new, coverage)
 sel_hold = np.where(interval_hold_new <= tau, 1, 0)
 sel_te = np.where(interval_te_new <= tau, 1, 0)
@@ -134,13 +137,17 @@ tmp["target_coverage"] = coverage
 res = pd.concat([res, tmp], axis=0)
 # %%
 # Basic Experiment
-audit = XGBClassifier()
+# audit = LogisticRegression()
+audit = LogisticRegression(penalty="l1", solver="liblinear")
 audit.fit(X_hold, sel_hold)
 # Lets evaluate on val -- Funny but it does not seem so too bad
-roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1])
+print("AUC", roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1]))
+print("F1", f1_score(sel_te, audit.predict(X_te)))
+print("Precision", precision_score(sel_te, audit.predict(X_te)))
+print("Recall", recall_score(sel_te, audit.predict(X_te)))
 # %%
 # Explain Auditor
-explainer = shap.Explainer(audit)
+explainer = shap.Explainer(audit, X_tr)
 shap_values = explainer(X_te)
 shap.plots.bar(shap_values)
 # %%
@@ -154,17 +161,27 @@ X_hold2["COW"] = X_hold2["COW"] + np.random.normal(5, 1, X_hold2.shape[0])
 
 audit.fit(X_hold2, sel_hold)
 # Lets evaluate on val -- Funny but it does not seem so too bad
-roc_auc_score(sel_te, audit.predict_proba(X_te2)[:, 1])
-# %%
-# Explain Auditor
-explainer = shap.Explainer(audit)
+print(roc_auc_score(sel_te, audit.predict_proba(X_te2)[:, 1]))
+print(f1_score(sel_te, audit.predict(X_te2)))
+print(precision_score(sel_te, audit.predict(X_te2)))
+print(recall_score(sel_te, audit.predict(X_te2)))
+
+explainer = shap.Explainer(audit, X_tr)
 shap_values = explainer(X_te2)
 shap.plots.bar(shap_values)
 # %%
-X_te2 = X_te.copy()
-X_te2["random"] = X_te2["random"] + np.random.normal(5, 1, X_te2.shape[0])
-X_te2["COW"] = X_te2["COW"] + np.random.normal(5, 1, X_te2.shape[0])
+shap.plots.waterfall(shap_values[0])
 # %%
-explainer = shap.Explainer(audit)
-shap_values = explainer(X_te2)
-shap.plots.bar(shap_values)
+shap.plots.beeswarm(shap_values)
+# %%
+print("AUC", roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1]))
+print("F1", f1_score(sel_te, audit.predict(X_te)))
+print("Precision", precision_score(sel_te, audit.predict(X_te)))
+print("Recall", recall_score(sel_te, audit.predict(X_te)))
+print("---------Shift")
+print("AUC", roc_auc_score(sel_te, audit.predict_proba(X_te2)[:, 1]))
+print("f1", f1_score(sel_te, audit.predict(X_te2)))
+print("prec", precision_score(sel_te, audit.predict(X_te2)))
+print("rec", recall_score(sel_te, audit.predict(X_te2)))
+
+# %%
