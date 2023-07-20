@@ -116,7 +116,9 @@ def experiment(
                 tmp["target_coverage"] = coverage
                 res = pd.concat([res, tmp], axis=0)
         elif meta == "gold":
-            error = (y_te - reg.predict(X_te, n_boots=n_boot)) ** 2  # error on the test set
+            error = (
+                y_te - reg.predict(X_te, n_boots=n_boot)
+            ) ** 2  # error on the test set
             y_hat = reg.predict(X_te, n_boots=n_boot)
             res = pd.DataFrame()
             for coverage in coverages:
@@ -251,4 +253,6 @@ if __name__ == "__main__":
     list_datasets = pd.read_csv("penn_ML_datasets.csv")["Dataset"].tolist()
     for dataset in tqdm(list_datasets[start:end]):
         print(dataset)
-        main(dataset, regressors, metas, nj=args.jobs, seed=args.seed, nboots=args.boots)
+        main(
+            dataset, regressors, metas, nj=args.jobs, seed=args.seed, nboots=args.boots
+        )

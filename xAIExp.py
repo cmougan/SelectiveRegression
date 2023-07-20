@@ -19,6 +19,13 @@ rcParams["axes.labelsize"] = 14
 rcParams["xtick.labelsize"] = 12
 rcParams["ytick.labelsize"] = 12
 rcParams["figure.figsize"] = 16, 8
+# Font size
+rcParams["font.size"] = 18
+rcParams["axes.titlesize"] = 22
+rcParams["axes.labelsize"] = 18
+rcParams["legend.fontsize"] = 16
+rcParams["xtick.labelsize"] = 16
+rcParams["ytick.labelsize"] = 16
 
 plt.style.use("ggplot")
 from sklearn.preprocessing import StandardScaler
@@ -128,7 +135,7 @@ interval_val_new = np.var(unc_val_new.T, axis=0)
 interval_hold_new = np.var(unc_hold_new.T, axis=0)
 y_hat = reg.predict(X_te)
 res = pd.DataFrame()
-coverage = 0.50
+coverage = 0.80
 tau = np.quantile(interval_val_new, coverage)
 sel_hold = np.where(interval_hold_new <= tau, 1, 0)
 sel_te = np.where(interval_te_new <= tau, 1, 0)
@@ -146,10 +153,40 @@ print("F1", f1_score(sel_te, audit.predict(X_te)))
 print("Precision", precision_score(sel_te, audit.predict(X_te)))
 print("Recall", recall_score(sel_te, audit.predict(X_te)))
 # %%
+# We dont predict if sel_te==1
+inst = X_te[sel_te == 1].iloc[0:2]
+inst_cov = interval_te_new[sel_te == 1][0:2]
+# %%
 # Explain Auditor
 explainer = shap.Explainer(audit, X_tr)
-shap_values = explainer(X_te)
-shap.plots.bar(shap_values)
+shap_values = explainer(inst)
+# Local explanation
+shap.waterfall_plot(shap_values[0])
+# Local explanation
+plt.figure(figsize=(10, 5))
+plt.title("Local explanation of predicted instance", fontsize=18)
+shap.waterfall_plot(shap_values[0], show=False)
+plt.tight_layout()
+plt.savefig("images/local_shap.pdf", bbox_inches="tight")
+plt.close()
+# %%
+# Shift
+inst_shift = inst.copy()
+inst_shift["random"] = inst_shift["random"] + np.random.normal(
+    5, 1, inst_shift.shape[0]
+)
+inst_shift["COW"] = inst_shift["COW"] + np.random.normal(5, 1, inst_shift.shape[0])
+
+explainer = shap.Explainer(audit, X_tr)
+shap_values = explainer(inst_shift)
+# Local explanation
+plt.figure(figsize=(10, 5))
+plt.title("Local explanation with a Shift in COW and random", fontsize=18)
+shap.waterfall_plot(shap_values[0], show=False)
+plt.tight_layout()
+plt.savefig("images/local_shap_shift.pdf", bbox_inches="tight")
+plt.close()
+
 # %%
 # Shifted feature experiment
 X_te2 = X_te.copy()
@@ -169,23 +206,3 @@ print(recall_score(sel_te, audit.predict(X_te2)))
 explainer = shap.Explainer(audit, X_tr)
 shap_values = explainer(X_te2)
 shap.plots.bar(shap_values)
-# %%
-# Plug In
-rplug = PlugIn(reg)
-rplug.fit(X_tr, y_tr)
-# plug_err = rplug.err_model.predict(X_te)
-plug_err = rplug.select(X_te, X_hold, coverage)
-# Auditor
-audit = LogisticRegression(penalty="l1", solver="liblinear")
-audit.fit(X_hold, plug_err)
-# Evaluate
-print("AUC", roc_auc_score(sel_te, audit.predict_proba(X_te2)[:, 1]))
-print("F1", f1_score(sel_te, audit.predict(X_te2)))
-print("Precision", precision_score(sel_te, audit.predict(X_te2)))
-print("Recall", recall_score(sel_te, audit.predict(X_te2)))
-# Explain Auditor
-explainer = shap.Explainer(audit, X_tr)
-shap_values = explainer(X_te2)
-shap.plots.bar(shap_values)
-
-# %%
