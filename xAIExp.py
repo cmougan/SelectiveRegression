@@ -154,18 +154,18 @@ print("Precision", precision_score(sel_te, audit.predict(X_te)))
 print("Recall", recall_score(sel_te, audit.predict(X_te)))
 # %%
 # We dont predict if sel_te==1
-inst = X_te[sel_te == 1].iloc[0:2]
-inst_cov = interval_te_new[sel_te == 1][0:2]
+inst = X_te[sel_te == 1]
+inst_cov = interval_te_new[sel_te == 1]
 # %%
 # Explain Auditor
 explainer = shap.Explainer(audit, X_tr)
 shap_values = explainer(inst)
 # Local explanation
-shap.waterfall_plot(shap_values[0])
+
 # Local explanation
 plt.figure(figsize=(10, 5))
-plt.title("Local explanation of predicted instance", fontsize=18)
-shap.waterfall_plot(shap_values[0], show=False)
+plt.title("Distribution of explanations", fontsize=18)
+shap.plots.beeswarm(shap_values, show=False)
 plt.tight_layout()
 plt.savefig("images/local_shap.pdf", bbox_inches="tight")
 plt.close()
@@ -181,8 +181,8 @@ explainer = shap.Explainer(audit, X_tr)
 shap_values = explainer(inst_shift)
 # Local explanation
 plt.figure(figsize=(10, 5))
-plt.title("Local explanation with a Shift in COW and random", fontsize=18)
-shap.waterfall_plot(shap_values[0], show=False)
+plt.title("Distribution of explanations with a Shift in COW and random", fontsize=18)
+shap.plots.beeswarm(shap_values, show=False)
 plt.tight_layout()
 plt.savefig("images/local_shap_shift.pdf", bbox_inches="tight")
 plt.close()
