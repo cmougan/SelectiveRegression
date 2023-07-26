@@ -6,6 +6,7 @@ from sklearn.linear_model import LinearRegression
 from folktables import ACSDataSource, ACSIncome
 from xgboost import XGBRegressor, XGBClassifier
 from sklearn.model_selection import train_test_split
+from scipy.stats import ks_2samp, wasserstein_distance
 
 # Import external libraries
 import pandas as pd
@@ -53,6 +54,7 @@ import warnings
 warnings.filterwarnings("ignore")
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.preprocessing import StandardScaler
 from category_encoders.m_estimate import MEstimateEncoder
 
 
@@ -104,27 +106,28 @@ ca_data = data_source.get_data(states=["CA"], download=True)
 # features, label, group = ACSEmployment.df_to_numpy(acs_data)
 ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
 ca_features = ca_features.drop(columns="RAC1P")
-ca_features["group"] = ca_group
+# ca_features["group"] = ca_group
 # ca_features["label"] = ca_labels
 # Rename SCHL as label
 ca_features = ca_features.rename(columns={"SCHL": "label"})
-ca_features
+# %%
 # Smaller dataset
-ca_features = ca_features.sample(4_000)
-# Split train, test, val and holdout set in 25-25-25-25
+ca_features = ca_features.sample(100_000)
 X = ca_features.drop(columns="label")
-
 # Add random noise to X
 X["random"] = np.random.normal(0, 1, X.shape[0])
+# Standardize
+X = pd.DataFrame(StandardScaler().fit_transform(X), columns=X.columns)
+
+# Train test split
 y = ca_features.label
 X1, X2, y1, y2 = train_test_split(X, y, test_size=0.5, random_state=0)
 X_tr, X_val, y_tr, y_val = train_test_split(X1, y1, test_size=0.5, random_state=0)
 X_hold, X_te, y_hold, y_te = train_test_split(X2, y2, test_size=0.5, random_state=0)
 
-
 # %%
 # Fit model
-reg = Boot(LinearRegression(), random_seed=42)
+reg = Boot(Lasso(), random_seed=42)
 reg.fit(X_tr, y_tr)
 # Make predictions
 _, unc_te_new = reg.predict(X_te, return_all=True)
@@ -147,6 +150,8 @@ res = pd.concat([res, tmp], axis=0)
 # audit = LogisticRegression()
 audit = LogisticRegression(penalty="l1", solver="liblinear")
 audit.fit(X_hold, sel_hold)
+pd.DataFrame(audit.coef_, columns=X_tr.columns)
+# %%
 # Lets evaluate on val -- Funny but it does not seem so too bad
 print("AUC", roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1]))
 print("F1", f1_score(sel_te, audit.predict(X_te)))
@@ -155,11 +160,14 @@ print("Recall", recall_score(sel_te, audit.predict(X_te)))
 # %%
 # We dont predict if sel_te==1
 inst = X_te[sel_te == 1]
-inst_cov = interval_te_new[sel_te == 1]
+
 # %%
 # Explain Auditor
-explainer = shap.Explainer(audit, X_tr)
+explainer = shap.explainers.Linear(
+    audit, X_tr, feature_perturbation="correlation_dependent"
+)
 shap_values = explainer(inst)
+shap1 = pd.DataFrame(shap_values.values, columns=X_tr.columns)
 # Local explanation
 
 # Local explanation
@@ -177,8 +185,11 @@ inst_shift["random"] = inst_shift["random"] + np.random.normal(
 )
 inst_shift["COW"] = inst_shift["COW"] + np.random.normal(5, 1, inst_shift.shape[0])
 
-explainer = shap.Explainer(audit, X_tr)
+explainer = shap.explainers.Linear(
+    audit, X_tr, feature_perturbation="correlation_dependent"
+)
 shap_values = explainer(inst_shift)
+shap2 = pd.DataFrame(shap_values.values, columns=X_tr.columns)
 # Local explanation
 plt.figure(figsize=(10, 5))
 plt.title("Distribution of explanations with a Shift in COW and random", fontsize=18)
@@ -186,23 +197,27 @@ shap.plots.beeswarm(shap_values, show=False)
 plt.tight_layout()
 plt.savefig("images/local_shap_shift.pdf", bbox_inches="tight")
 plt.close()
-
 # %%
-# Shifted feature experiment
-X_te2 = X_te.copy()
-X_te2["random"] = X_te2["random"] + np.random.normal(5, 1, X_te2.shape[0])
-X_te2["COW"] = X_te2["COW"] + np.random.normal(5, 1, X_te2.shape[0])
-X_hold2 = X_hold.copy()
-X_hold2["random"] = X_hold2["random"] + np.random.normal(5, 1, X_hold2.shape[0])
-X_hold2["COW"] = X_hold2["COW"] + np.random.normal(5, 1, X_hold2.shape[0])
+# Shift of all features
+wass = []
+for col in X_tr.columns:
+    inst_shift = inst.copy()
+    inst_shift[col] = inst_shift[col] + np.random.normal(5, 1, inst_shift.shape[0])
 
-audit.fit(X_hold2, sel_hold)
-# Lets evaluate on val -- Funny but it does not seem so too bad
-print(roc_auc_score(sel_te, audit.predict_proba(X_te2)[:, 1]))
-print(f1_score(sel_te, audit.predict(X_te2)))
-print(precision_score(sel_te, audit.predict(X_te2)))
-print(recall_score(sel_te, audit.predict(X_te2)))
+    explainer = shap.explainers.Linear(
+        audit, X_tr, feature_perturbation="correlation_dependent"
+    )
+    shap_values = explainer(inst_shift)
+    shap2 = pd.DataFrame(shap_values.values, columns=X_tr.columns)
+    # Statistical test - KS
+    print(col, ks_2samp(shap1[col], shap2[col]))
+    print(col, wasserstein_distance(shap1[col], shap2[col]))
+    wass.append([col, wasserstein_distance(shap1[col], shap2[col])])
 
-explainer = shap.Explainer(audit, X_tr)
-shap_values = explainer(X_te2)
-shap.plots.bar(shap_values)
+# Results
+wass = pd.DataFrame(wass, columns=["feat", "wass"]).sort_values(
+    by="wass", ascending=False
+)
+# %%
+wass
+# %%
