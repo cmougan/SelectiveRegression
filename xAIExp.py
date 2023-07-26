@@ -59,6 +59,37 @@ from category_encoders.m_estimate import MEstimateEncoder
 
 
 # %%
+# Utils
+d = {
+    "AGEP": "Age",
+    "SCHL": "label",  # "SCHL": "Education",
+    "MAR": "Marital",
+    "COW": "ClassWorker",
+    "ESP": "Employment",
+    "ST": "State",
+    "POVPIP": "PovertyIncome",
+    "MIG": "MobilityStat",
+    "CIT": "Citizenship",
+    "DIS": "Disability",
+    "OCCP": "Occupation",
+    "PUMA": "Area",
+    "JWTR": "WorkTravel",
+    "JWTRNS": "WorkTravel2",
+    "RAC1P": "Race",
+    "AGEP": "Age",
+    "POWPUMA": "WorkPlace",
+    "SEX": "Sex",
+    "RELP": "Relationship",
+    "POBP": "PlaceOfBirth",
+    "ANC": "Ancestry",
+    "MIL": "Military",
+    "DEYE": "VisionDiff",
+    "DEAR": "EaringDiff",
+    "DREAM": "CognitiveDiff",
+    "ESR": "EmploymentStatus",
+}
+
+
 def get_metrics_test(true, y_hat, selected):
     if np.sum(selected) > 0:
         coverage = len(selected[selected == 1]) / len(selected)
@@ -105,17 +136,16 @@ data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person
 ca_data = data_source.get_data(states=["CA"], download=True)
 # features, label, group = ACSEmployment.df_to_numpy(acs_data)
 ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
-ca_features = ca_features.drop(columns="RAC1P")
-# ca_features["group"] = ca_group
-# ca_features["label"] = ca_labels
-# Rename SCHL as label
-ca_features = ca_features.rename(columns={"SCHL": "label"})
+ca_features = ca_features.drop(columns=["RAC1P", "MAR"])
+
+ca_features = ca_features.rename(columns=d)
+
 # %%
 # Smaller dataset
-ca_features = ca_features.sample(100_000)
+# ca_features = ca_features.sample(100_000)
 X = ca_features.drop(columns="label")
 # Add random noise to X
-X["random"] = np.random.normal(0, 1, X.shape[0])
+X["Random"] = np.random.normal(0, 1, X.shape[0])
 # Standardize
 X = pd.DataFrame(StandardScaler().fit_transform(X), columns=X.columns)
 
@@ -127,7 +157,7 @@ X_hold, X_te, y_hold, y_te = train_test_split(X2, y2, test_size=0.5, random_stat
 
 # %%
 # Fit model
-reg = Boot(Lasso(), random_seed=42)
+reg = Boot(XGBRegressor(), random_seed=42)
 reg.fit(X_tr, y_tr)
 # Make predictions
 _, unc_te_new = reg.predict(X_te, return_all=True)
@@ -221,3 +251,45 @@ wass = pd.DataFrame(wass, columns=["feat", "wass"]).sort_values(
 # %%
 wass
 # %%
+# Loop over estimator and auditor
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+
+estimators = [XGBRegressor(), LinearRegression(), RandomForestRegressor()]
+auditors = [
+    LogisticRegression(penalty="l1", solver="liblinear"),
+    XGBClassifier(),
+    RandomForestClassifier(),
+    MLPClassifier(),
+]
+resultados = []
+for estimator in estimators:
+    for auditor in auditors:
+        # Fit estimator
+        reg = Boot(XGBRegressor(), random_seed=42)
+        reg.fit(X_tr, y_tr)
+
+        # Engineer predictions
+        _, unc_te_new = reg.predict(X_te, return_all=True)
+        _, unc_val_new = reg.predict(X_val, return_all=True)
+        _, unc_hold_new = reg.predict(X_hold, return_all=True)
+        interval_te_new = np.var(unc_te_new.T, axis=0)
+        interval_val_new = np.var(unc_val_new.T, axis=0)
+        interval_hold_new = np.var(unc_hold_new.T, axis=0)
+        y_hat = reg.predict(X_te)
+        coverage = 0.80
+        tau = np.quantile(interval_val_new, coverage)
+        sel_hold = np.where(interval_hold_new <= tau, 1, 0)
+        sel_te = np.where(interval_te_new <= tau, 1, 0)
+        tmp = get_metrics_test(y_te, y_hat, sel_te)
+        tmp["target_coverage"] = coverage
+
+        # Fit Auditor
+        audit.fit(X_hold, sel_hold)
+        auc = roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1])
+        resultados.append([estimator.__name__, auditor.__name__, auc])
+# %%
+# Pivot table
+pd.DataFrame(resultados, columns=["estimator", "auditor", "auc"]).pivot(
+    index="estimator", columns="auditor", values="auc"
+)
