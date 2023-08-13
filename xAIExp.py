@@ -30,7 +30,7 @@ rcParams["ytick.labelsize"] = 16
 
 plt.style.use("ggplot")
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression, Lasso
+from sklearn.linear_model import LogisticRegression, Lasso, Ridge
 from sklearn.metrics import (
     mean_squared_error,
     r2_score,
@@ -56,6 +56,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 from category_encoders.m_estimate import MEstimateEncoder
+
+# Ser seed
+np.random.seed(4)
 
 
 # %%
@@ -105,18 +108,26 @@ def explain(xgb: bool = True):
 # https://www.kaggle.com/code/lucabasa/house-price-cleaning-without-dropping-features/output?select=trainclean.csv
 df = pd.read_csv("data/trainclean.csv")
 df = df.drop(columns="Id")
+# %%
+# Quick feature importance
+# X = df.drop(columns="SalePrice")._get_numeric_data()
+# y = df.SalePrice
+# m = XGBRegressor()
+# m.fit(X, y)
+# pd.DataFrame(m.feature_importances_, index=X.columns).sort_values(    by=0, ascending=False)
 
-df["Random"] = np.random.normal(0, 1, df.shape[0])
+# %%
+df["Random"] = np.random.normal(0, 10, df.shape[0])
 
 df = df[
     [
         "OverallQual",
-        "GrLivArea",
-        "TotalBsmtSF",
-        "ExterQual",
+        "GarageCars",
+        "BsmtQual",
         "KitchenQual",
-        "LotFrontage",
-        # "LotArea",
+        "KitchenAbvGr",
+        "GrLivArea",
+        "CentralAir",
         "SalePrice",
         "Random",
     ]
@@ -187,6 +198,7 @@ plt.figure(figsize=(10, 5))
 plt.title("Distribution of explanations", fontsize=18)
 shap.plots.beeswarm(shap_values, show=False)
 plt.tight_layout()
+plt.xlim(-8, 4)
 plt.savefig("images/local_shap.pdf", bbox_inches="tight")
 plt.close()
 # %%
@@ -206,8 +218,11 @@ shap_values = explainer(inst_shift)
 shap2 = pd.DataFrame(shap_values.values, columns=X_tr.columns)
 # Local explanation
 plt.figure(figsize=(10, 5))
-plt.title("Distribution of explanations with a Shift in COW and random", fontsize=18)
+plt.title(
+    "Distribution of explanations with a Shift in GrLivArea and Random", fontsize=18
+)
 shap.plots.beeswarm(shap_values, show=False)
+plt.xlim(-8, 4)
 plt.tight_layout()
 plt.savefig("images/local_shap_shift.pdf", bbox_inches="tight")
 plt.close()
@@ -216,12 +231,12 @@ plt.close()
 wass = []
 for col in X_tr.columns:
     statistic = []
-    for i in range(100):
+    for i in range(10):
         inst_shift = inst.copy()
         inst_shift[col] = inst_shift[col] + np.random.normal(5, 1, inst_shift.shape[0])
 
         explainer = shap.explainers.Linear(
-            audit, X_tr, feature_perturbation="correlation_dependent"
+            audit, X_tr, feature_perturbation="interventional"
         )
         shap_values = explainer(inst_shift)
         shap2 = pd.DataFrame(shap_values.values, columns=X_tr.columns)
@@ -237,13 +252,27 @@ wass = pd.DataFrame(wass, columns=["feat", "wass", "ci"]).sort_values(
 wass
 # %%
 # Loop over estimator and auditor
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.ensemble import (
+    RandomForestRegressor,
+    RandomForestClassifier,
+    GradientBoostingRegressor,
+    GradientBoostingClassifier,
+)
 from sklearn.neural_network import MLPClassifier
+from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
-estimators = [XGBRegressor(), LinearRegression(), RandomForestRegressor()]
+estimators = [
+    DecisionTreeRegressor(),
+    GradientBoostingRegressor(),
+    LinearRegression(),
+    RandomForestRegressor(),
+]
 auditors = [
-    LogisticRegression(penalty="l1", solver="liblinear"),
-    XGBClassifier(),
+    DecisionTreeClassifier(),
+    KNeighborsClassifier(),
+    LogisticRegression(),
+    GradientBoostingClassifier(),
     RandomForestClassifier(),
     MLPClassifier(),
 ]
@@ -251,7 +280,7 @@ resultados = []
 for estimator in estimators:
     for auditor in auditors:
         # Fit estimator
-        reg = Boot(estimator, random_seed=42)
+        reg = Boot(estimator)
         reg.fit(X_tr, y_tr)
 
         # Engineer predictions
@@ -279,6 +308,6 @@ for estimator in estimators:
 # Pivot table
 pd.DataFrame(resultados, columns=["estimator", "auditor", "auc"]).pivot(
     index="estimator", columns="auditor", values="auc"
-)
+).T.round(3).to_csv("estimator_auditor.csv")
 
 # %%
