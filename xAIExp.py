@@ -87,6 +87,7 @@ d = {
     "DEAR": "EaringDiff",
     "DREAM": "CognitiveDiff",
     "ESR": "EmploymentStatus",
+    "WKHP": "WorkHours",
 }
 
 
@@ -142,7 +143,7 @@ ca_features = ca_features.rename(columns=d)
 
 # %%
 # Smaller dataset
-# ca_features = ca_features.sample(100_000)
+ca_features = ca_features.sample(100_000)
 X = ca_features.drop(columns="label")
 # Add random noise to X
 X["Random"] = np.random.normal(0, 1, X.shape[0])
@@ -210,10 +211,12 @@ plt.close()
 # %%
 # Shift
 inst_shift = inst.copy()
-inst_shift["random"] = inst_shift["random"] + np.random.normal(
+inst_shift["Random"] = inst_shift["Random"] + np.random.normal(
     5, 1, inst_shift.shape[0]
 )
-inst_shift["COW"] = inst_shift["COW"] + np.random.normal(5, 1, inst_shift.shape[0])
+inst_shift["ClassWorker"] = inst_shift["ClassWorker"] + np.random.normal(
+    5, 1, inst_shift.shape[0]
+)
 
 explainer = shap.explainers.Linear(
     audit, X_tr, feature_perturbation="correlation_dependent"
@@ -231,21 +234,22 @@ plt.close()
 # Shift of all features
 wass = []
 for col in X_tr.columns:
-    inst_shift = inst.copy()
-    inst_shift[col] = inst_shift[col] + np.random.normal(5, 1, inst_shift.shape[0])
+    statistic = []
+    for i in range(100):
+        inst_shift = inst.copy()
+        inst_shift[col] = inst_shift[col] + np.random.normal(5, 1, inst_shift.shape[0])
 
-    explainer = shap.explainers.Linear(
-        audit, X_tr, feature_perturbation="correlation_dependent"
-    )
-    shap_values = explainer(inst_shift)
-    shap2 = pd.DataFrame(shap_values.values, columns=X_tr.columns)
-    # Statistical test - KS
-    print(col, ks_2samp(shap1[col], shap2[col]))
-    print(col, wasserstein_distance(shap1[col], shap2[col]))
-    wass.append([col, wasserstein_distance(shap1[col], shap2[col])])
+        explainer = shap.explainers.Linear(
+            audit, X_tr, feature_perturbation="correlation_dependent"
+        )
+        shap_values = explainer(inst_shift)
+        shap2 = pd.DataFrame(shap_values.values, columns=X_tr.columns)
+        statistic.append(wasserstein_distance(shap1[col], shap2[col]))
+
+    wass.append([col, np.mean(statistic), np.std(statistic)])
 
 # Results
-wass = pd.DataFrame(wass, columns=["feat", "wass"]).sort_values(
+wass = pd.DataFrame(wass, columns=["feat", "wass", "ci"]).sort_values(
     by="wass", ascending=False
 )
 # %%
@@ -266,7 +270,7 @@ resultados = []
 for estimator in estimators:
     for auditor in auditors:
         # Fit estimator
-        reg = Boot(XGBRegressor(), random_seed=42)
+        reg = Boot(estimator, random_seed=42)
         reg.fit(X_tr, y_tr)
 
         # Engineer predictions
@@ -285,11 +289,15 @@ for estimator in estimators:
         tmp["target_coverage"] = coverage
 
         # Fit Auditor
-        audit.fit(X_hold, sel_hold)
+        auditor.fit(X_hold, sel_hold)
         auc = roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1])
-        resultados.append([estimator.__name__, auditor.__name__, auc])
+        resultados.append(
+            [estimator.__class__.__name__, auditor.__class__.__name__, auc]
+        )
 # %%
 # Pivot table
 pd.DataFrame(resultados, columns=["estimator", "auditor", "auc"]).pivot(
     index="estimator", columns="auditor", values="auc"
 )
+
+# %%
