@@ -60,37 +60,6 @@ from category_encoders.m_estimate import MEstimateEncoder
 
 # %%
 # Utils
-d = {
-    "AGEP": "Age",
-    "SCHL": "label",  # "SCHL": "Education",
-    "MAR": "Marital",
-    "COW": "ClassWorker",
-    "ESP": "Employment",
-    "ST": "State",
-    "POVPIP": "PovertyIncome",
-    "MIG": "MobilityStat",
-    "CIT": "Citizenship",
-    "DIS": "Disability",
-    "OCCP": "Occupation",
-    "PUMA": "Area",
-    "JWTR": "WorkTravel",
-    "JWTRNS": "WorkTravel2",
-    "RAC1P": "Race",
-    "AGEP": "Age",
-    "POWPUMA": "WorkPlace",
-    "SEX": "Sex",
-    "RELP": "Relationship",
-    "POBP": "PlaceOfBirth",
-    "ANC": "Ancestry",
-    "MIL": "Military",
-    "DEYE": "VisionDiff",
-    "DEAR": "EaringDiff",
-    "DREAM": "CognitiveDiff",
-    "ESR": "EmploymentStatus",
-    "WKHP": "WorkHours",
-}
-
-
 def get_metrics_test(true, y_hat, selected):
     if np.sum(selected) > 0:
         coverage = len(selected[selected == 1]) / len(selected)
@@ -133,25 +102,37 @@ def explain(xgb: bool = True):
 
 # %%
 # Load Data
-data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
-ca_data = data_source.get_data(states=["CA"], download=True)
-# features, label, group = ACSEmployment.df_to_numpy(acs_data)
-ca_features, ca_labels, ca_group = ACSIncome.df_to_pandas(ca_data)
-ca_features = ca_features.drop(columns=["RAC1P", "MAR"])
+# https://www.kaggle.com/code/lucabasa/house-price-cleaning-without-dropping-features/output?select=trainclean.csv
+df = pd.read_csv("data/trainclean.csv")
+df = df.drop(columns="Id")
 
-ca_features = ca_features.rename(columns=d)
+df["Random"] = np.random.normal(0, 1, df.shape[0])
+
+df = df[
+    [
+        "OverallQual",
+        "GrLivArea",
+        "TotalBsmtSF",
+        "ExterQual",
+        "KitchenQual",
+        "LotFrontage",
+        # "LotArea",
+        "SalePrice",
+        "Random",
+    ]
+]
 
 # %%
 # Smaller dataset
-ca_features = ca_features.sample(100_000)
-X = ca_features.drop(columns="label")
+
+X = df.drop(columns="SalePrice")
 # Add random noise to X
-X["Random"] = np.random.normal(0, 1, X.shape[0])
+
 # Standardize
 X = pd.DataFrame(StandardScaler().fit_transform(X), columns=X.columns)
 
 # Train test split
-y = ca_features.label
+y = df.SalePrice
 X1, X2, y1, y2 = train_test_split(X, y, test_size=0.5, random_state=0)
 X_tr, X_val, y_tr, y_val = train_test_split(X1, y1, test_size=0.5, random_state=0)
 X_hold, X_te, y_hold, y_te = train_test_split(X2, y2, test_size=0.5, random_state=0)
@@ -214,7 +195,7 @@ inst_shift = inst.copy()
 inst_shift["Random"] = inst_shift["Random"] + np.random.normal(
     5, 1, inst_shift.shape[0]
 )
-inst_shift["ClassWorker"] = inst_shift["ClassWorker"] + np.random.normal(
+inst_shift["GrLivArea"] = inst_shift["GrLivArea"] + np.random.normal(
     5, 1, inst_shift.shape[0]
 )
 
