@@ -137,7 +137,7 @@ res = pd.concat([res, tmp], axis=0)
 audit = XGBClassifier()
 audit.fit(X_hold, sel_hold)
 # Lets evaluate on val -- Funny but it does not seem so too bad
-roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1])
+print(roc_auc_score(sel_te, audit.predict_proba(X_te)[:, 1]))
 # %%
 # Explain Auditor
 explainer = shap.Explainer(audit)

@@ -121,5 +121,5 @@ class PlugIn(BaseEstimator):
 
     def select(self, X, X_cal, cov):
         self.calibrate(X_cal, cov)
-        preds = self.predict(X)
+        # preds = self.predict(X)
         return np.where((self.err_model.predict(X)) < self.theta, 1, 0)

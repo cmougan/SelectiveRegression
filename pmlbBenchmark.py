@@ -17,6 +17,7 @@ from sklearn.linear_model import Lasso, LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.ensemble import RandomForestRegressor
 
 # Doubt
 from doubt import Boot
@@ -27,7 +28,8 @@ from lightgbm import LGBMRegressor
 # Benchmark
 from pmlb import regression_dataset_names, fetch_data
 from mapie.regression import MapieRegressor
-
+# CO2 emissions
+from codecarbon import EmissionsTracker
 
 def get_metrics_test(true, y_hat, selected):
     if np.sum(selected) > 0:
@@ -58,9 +60,10 @@ def experiment(
     if os.path.exists("results/{}".format(dataset)) == False:
         os.mkdir("results/{}".format(dataset))
     # Convert to dataframe
-    X = pd.DataFrame(X.copy()).reset_index(drop=True)
-    X.columns = ["Var" + str(i) for i in X.columns]
-    y = pd.Series(y.copy()).values
+    # X = pd.DataFrame(X.copy()).reset_index(drop=True)
+    # X.columns = ["Var" + str(i) for i in X.columns]
+    # y = pd.Series(y.copy()).values
+    X = X.copy()
     # Split train, test and holdout
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.4, random_state=seed)
     X_val, X_te, y_val, y_te = train_test_split(
@@ -78,7 +81,7 @@ def experiment(
     y_te = scaler.transform(y_te.reshape(-1, 1)).flatten()
     n_features = len(X.columns)
     train_size = X_tr.shape[0]
-    reg = Boot(reg_base, random_seed=42)
+    reg = Boot(reg_base, random_seed=seed)
     reg.fit(X_tr, y_tr, n_boots=n_boot)
     print(len(reg._models))
     results = pd.DataFrame()
@@ -198,18 +201,35 @@ def experiment(
         res["nboots"] = len(reg._models)
         results = pd.concat([results, res], axis=0)
     return results
-
+def get_data_PMLB(dataset):
+    X, y = fetch_data(dataset, return_X_y=True)
+    X = pd.DataFrame(X.copy()).reset_index(drop=True)
+    X.columns = ["Var" + str(i) for i in X.columns]
+    y = pd.Series(y.copy()).values
+    cat_atts = list(
+        X.select_dtypes(include=["object", "category"]).columns
+    )
+    cont_atts = list(
+        X.select_dtypes(exclude=["object", "category"]).columns
+    )
+    if cat_atts != []:
+        X_oh = pd.get_dummies(X[cat_atts], drop_first=True)
+        X = pd.concat([X[cont_atts], X_oh], axis=1)
+    return X, y
 
 def main(dataset, regressors, metas, nj=1, seed=42, nboots=None):
     np.random.seed(seed)
     set_seed(seed)
     try:
-        X, y = fetch_data(dataset, return_X_y=True)
+        X, y = get_data_PMLB(dataset)
+
+
     except:
         raise FileNotFoundError("The dataset could not be retrieved. Please check.")
     for reg_string in regressors:
         if reg_string == "lasso":
-            reg_base = Lasso(random_state=seed)
+            reg_base = Lasso(random_state=seed, tol=0.001,
+          max_iter=10000)
         elif reg_string == "lr":
             reg_base = LinearRegression(n_jobs=nj)
         elif reg_string == "xgb":
@@ -217,19 +237,24 @@ def main(dataset, regressors, metas, nj=1, seed=42, nboots=None):
         elif reg_string == "lgbm":
             reg_base = LGBMRegressor(random_state=seed, n_jobs=nj)
         elif reg_string == "dt":
-            reg_base = DecisionTreeRegressor(random_state=seed)
-        tmp = experiment(X, y, dataset, metas, reg_base, seed=seed, n_boot=nboots)
-        tmp["seed"] = seed
-        if nboots is None:
-            boot_str = ""
+            reg_base = DecisionTreeRegressor(random_state=seed, max_depth=10)
+        elif reg_string == "rf":
+            reg_base = RandomForestRegressor(random_state=seed)
+        if (X.shape[0] < 100000):
+            tmp = experiment(X, y, dataset, metas, reg_base, seed=seed, n_boot=nboots)
+            tmp["seed"] = seed
+            if nboots is None:
+                boot_str = ""
+            else:
+                boot_str = "_BOOTS_{}".format(nboots)
+            tmp.to_csv(
+                "results/{}/FINAL_RESULTS_{}_{}_{}_SEED{}{}.csv".format(
+                    dataset, dataset, reg_string, "-".join(metas), seed, boot_str
+                ),
+                index=False,
+            )
         else:
-            boot_str = "_BOOTS_{}".format(nboots)
-        tmp.to_csv(
-            "results/{}/ALL_RESULTS_{}_{}_{}_SEED{}{}.csv".format(
-                dataset, dataset, reg_string, "-".join(metas), seed, boot_str
-            ),
-            index=False,
-        )
+            print("Dataset not included")
 
 
 if __name__ == "__main__":
@@ -248,7 +273,9 @@ if __name__ == "__main__":
     start = max(0, args.start)
     end = min(len(regression_dataset_names), args.end)
     # metas = ["doubt"]
-    list_datasets = pd.read_csv("penn_ML_datasets.csv")["Dataset"].tolist()
+    # list_datasets = pd.read_csv("penn_ML_datasets.csv")["Dataset"].tolist()
+    list_datasets = regression_dataset_names
     for dataset in tqdm(list_datasets[start:end]):
         print(dataset)
-        main(dataset, regressors, metas, nj=args.jobs, seed=args.seed, nboots=args.boots)
+        with EmissionsTracker() as tracker:
+            main(dataset, regressors, metas, nj=args.jobs, seed=args.seed, nboots=args.boots)
