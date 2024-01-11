@@ -2,6 +2,7 @@ import torch.utils.data
 from tqdm import tqdm
 import random
 import copy
+from skorch import NeuralNetRegressor
 from tools.modules import *
 from tools.losses import *
 from tools.datasets import *
@@ -256,41 +257,9 @@ def train(
                                 if criterion == "selnet_em":
                                     loss3 = entropy_loss(hg[:, :-1])
                                     loss += beta * loss3
-                            loss.backward()
-                            optimizer.step()
-                            running_loss += loss.item()
-                            r = torch.cuda.memory_reserved(0)
-                            a = torch.cuda.memory_allocated(0)
-                            f = (r - a) / (1024**2)
-                            tbatch.set_postfix(
-                                loss=loss.item(),
-                                average_loss=running_loss / (i + 1),
-                                memory=f,
-                            )
-            else:
-                with tqdm(train_dl, unit="batch") as tbatch:
-                    for i, batch in enumerate(tbatch):
-                        tbatch.set_description(
-                            "Epoch {} - dev {}".format(epoch, device)
-                        )
-                        x, y, indices = batch
-                        x, y = x.to(device), y.float().to(device)
-                        if len(y) == 1:
-                            pass
-                        else:
-                            optimizer.zero_grad()
-                            if criterion in ["selnet", "selnet_em"]:
-                                if (epoch == 1) & (i == 0):
-                                    print("\n criterion is {} \n".format(criterion))
-                                hg, aux = model.forward(x)
-                                loss1 = MSE_loss_selective(
-                                    y, hg, lamda=lamda, c=coverage
-                                )
-                                loss2 = MSE_loss(y, aux)
-                                loss = (alpha * loss1) + ((1 - alpha) * loss2)
-                                if criterion == "selnet_em":
-                                    loss3 = entropy_loss(hg[:, :-1])
-                                    loss += beta * loss3
+                            elif criterion == "MSE":
+                                outputs = model.forward(x_num, x_cat)
+                                loss = MSE_loss(y, outputs)
                             loss.backward()
                             optimizer.step()
                             running_loss += loss.item()
@@ -325,33 +294,13 @@ def train(
                             if criterion == "selnet_em":
                                 loss3 = entropy_loss(hg[:, :-1])
                                 loss += beta * loss3
+                        elif criterion == "MSE":
+                            outputs = model.forward(x_num, x_cat)
+                            loss = MSE_loss(y, outputs)
                         loss.backward()
                         optimizer.step()
                         running_loss += loss.item()
                         if (epoch % 50 == 0) & (i == len(train_dl) - 1):
-                            print(running_loss / len(train_dl))
-            else:
-                for i, batch in enumerate(train_dl):
-                    x, y, indices = batch
-                    x, y = x.to(device), y.float().to(device)
-                    if len(y) == 1:
-                        pass
-                    else:
-                        optimizer.zero_grad()
-                        if criterion in ["selnet", "selnet_em"]:
-                            if (epoch == 1) & (i == 0):
-                                print("\n criterion is {} \n".format(criterion))
-                            hg, aux = model.forward(x)
-                            loss1 = MSE_loss_selective(y, hg, lamda=lamda, c=coverage)
-                            loss2 = MSE_loss(y, aux)
-                            loss = (alpha * loss1) + ((1 - alpha) * loss2)
-                            if criterion == "selnet_em":
-                                loss3 = entropy_loss(hg[:, :-1])
-                                loss += beta * loss3
-                        loss.backward()
-                        optimizer.step()
-                        running_loss += loss.item()
-                        if (epoch % 50 == 0) & (i == len(train_dl)):
                             print(running_loss / len(train_dl))
 
     return model
@@ -377,6 +326,8 @@ def predict(
         if "selnet" in meta:
             hg, aux = model(x_num, x_cat)
             y_hat_batch = hg[:, 0].detach().cpu().numpy().reshape(-1, 1)
+        else:
+            y_hat_batch = model(x_num, x_cat).detach().cpu().numpy().reshape(-1, 1)
         y_hat_.append(y_hat_batch)
     # TODO: implement for images (?)
 
@@ -412,6 +363,8 @@ def predict_conf(
         if "selnet" in meta:
             hg, aux = model(x_num, x_cat)
             sel_batch = hg[:, -1].detach().cpu().numpy().reshape(-1, 1)
+        else:
+            out = model(x_num, x_cat).detach().cpu().numpy().reshape(-1, 1)
         sel_.append(sel_batch)
     # TODO: implement for images (?)
 
@@ -473,3 +426,5 @@ def tabular_model(model_type, x_num, cat_dim, meta, body_dict):
     else:
         raise NotImplementedError("The model architecture is not implemented yet.")
     return model
+
+

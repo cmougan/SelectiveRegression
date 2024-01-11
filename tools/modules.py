@@ -11,7 +11,7 @@ class TabCatResNet(Module):
         d_in: int,
         cat_cardinalities: list,
         d_token: int = 192,  # as the default for FTTransformer in Gorishniy et al. 2021
-        d_out: int = 2,
+        d_out: int = 1,
         n_blocks: int = 2,
         d_main: int = 3,
         d_hidden: int = 4,
@@ -75,10 +75,10 @@ class TabFTTransformer(Module):
         d_in: int,
         cat_cardinalities: list,
         d_token: int = 192,  # as the default for FTTransformer in Gorishniy et al. 2021
-        d_out: int = 2,
-        n_blocks: int = 2,
+        d_out: int = 1,
+        n_blocks: int = 3,
         attention_dropout: float = 0.2,
-        ffn_d_hidden: int = 192,
+        ffn_d_hidden: int = 256,
         ffn_dropout: float = 0.1,
         residual_dropout: float = 0,
     ):
