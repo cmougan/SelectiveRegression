@@ -14,9 +14,8 @@ To enhance the interpretability of our selective regression approach, we incorpo
 
 ## Repository Structure
 
-- `data/`: Contains the datasets used for benchmarking and experimentation.
 - `pmlbBenchmark.py`: code to reproduce the experiments of Q1-Q2 using pmlbBenchmark data.
-- `TabGrin.py`: code to reproduce the experiments of Q1-Q2 using data from (Grinsztajn et al., 2023).
+- `TabGrinBenchmark.py`: code to reproduce the experiments of Q1-Q2 using data from (Grinsztajn et al., 2023).
 - `xAIExp.py`: code to reproduce the experiments of Q3.
 - `tools/`: Additional files to run experiments, if any, related to the package and experiments.
 - `LICENSE`: The license information for the contents of this repository.
@@ -24,20 +23,18 @@ To enhance the interpretability of our selective regression approach, we incorpo
 
 ## Installation
 
-
-> Install the required package using:
+Install the required package using:
 
 
 ```
 $ pip install -r requirements.txt
 ```
 
-Then 
-```
+
 
 ## Usage
 
-> The experiments for Q1-Q2 can be reproduced by running the following commands, using as $SEED the values 42, 999, 12345, 291091, 123456789:
+The experiments for Q1-Q2 can be reproduced by running the following commands, using as $SEED the values 42, 999, 12345, 291091, 123456789:
 
 ```
 $ python pmlbBenchmark.py  --meta doubt doubtNew mapieBase plugin gold scross --reg xgb lgbm rf dt lr --seed $SEED
